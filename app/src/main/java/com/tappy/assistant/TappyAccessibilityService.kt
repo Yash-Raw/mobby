@@ -151,6 +151,10 @@ class TappyAccessibilityService : AccessibilityService(),
     override fun onVoiceResult(transcript: String) {
         Log.d(TAG, "onVoiceResult: \"$transcript\"")
         overlayManager?.setVoiceButtonEnabled(true)
+        if (overlayManager?.handleVoiceConfirmation(transcript) == true) {
+            wakewordDetector?.startListening()
+            return
+        }
         val command = CommandParser.parse(transcript)
         commandDispatcher?.dispatch(command)
         wakewordDetector?.startListening()

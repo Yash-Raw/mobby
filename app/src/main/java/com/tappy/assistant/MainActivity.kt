@@ -116,7 +116,7 @@ class MainActivity : Activity() {
 
         page.addView(Button(this).apply {
             isAllCaps = false
-            text = "Open Mobby controls over other apps"
+            text = "Start Mobby Voice Assistant"
             textSize = 18f
             setTextColor(Color.WHITE)
             setBackgroundColor(getColor(R.color.mobby_blue))
@@ -426,12 +426,12 @@ class MainActivity : Activity() {
             return
         }
         if (!isAccessibilityAccessEnabled()) {
-            toast("Enable Mobby controls in Android Accessibility Settings first.")
+            toast("Enable Mobby in Android Accessibility Settings first.")
             openAccessibilitySettings()
             return
         }
         if (!TappyAccessibilityService.openQuickPanel()) {
-            toast("Android is still connecting Mobby controls. Please try again in a moment.")
+            toast("Android is still connecting Mobby. Please try again in a moment.")
             return
         }
         Log.i(TAG, "openDeviceControls: overlay opened, moving to background")
@@ -460,7 +460,7 @@ class MainActivity : Activity() {
             && grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
             Log.i(TAG, "onRequestPermissionsResult: microphone granted")
-            toast("Microphone enabled. Tap Open Mobby controls when you are ready.")
+            toast("Microphone enabled. Tap Start Mobby Voice Assistant when you are ready.")
         }
     }
 

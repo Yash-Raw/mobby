@@ -1,151 +1,109 @@
 package com.tappy.assistant
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.PixelFormat
+import android.speech.tts.TextToSpeech
 import android.util.Log
-import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /**
- * Manages the floating accessibility overlay panel that appears over other apps.
- * Handles panel construction, visibility toggling, message display, and confirmation dialogs.
- *
- * The overlay uses [WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY] which is
- * automatically granted when the accessibility service is enabled — no separate
- * SYSTEM_ALERT_WINDOW permission is needed.
+ * Manages Mobby's text-to-speech feedback and voice-based confirmations.
+ * The visual overlay control panel has been removed to make Mobby completely voice-based.
  */
 class OverlayManager(
     private val context: Context,
     private val windowManager: WindowManager,
     private val callbacks: Callbacks
-) {
+) : TextToSpeech.OnInitListener {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private var quickPanel: View? = null
-    private var panelMessage: TextView? = null
-    private var voiceButton: Button? = null
+    private var tts: TextToSpeech? = null
+    private var isTtsReady = false
+    private var isQuickPanelActive = false
 
-    /** Whether the overlay panel is currently showing. */
-    val isShowing: Boolean get() = quickPanel != null
+    val isShowing: Boolean get() = isQuickPanelActive
 
-    /** Toggles the quick panel on or off. */
+    class PendingConfirmation(
+        val question: String,
+        val onConfirm: () -> OperationResult,
+        val onCancel: (() -> Unit)?
+    )
+
+    private var pendingConfirmation: PendingConfirmation? = null
+
+    init {
+        tts = TextToSpeech(context.applicationContext, this)
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            val result = tts?.setLanguage(Locale.getDefault())
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.e(TAG, "onInit: TTS language not supported")
+            } else {
+                isTtsReady = true
+                Log.d(TAG, "onInit: TTS initialized successfully")
+            }
+        } else {
+            Log.e(TAG, "onInit: TTS initialization failed")
+        }
+    }
+
+    fun speak(text: String) {
+        if (isTtsReady) {
+            Log.d(TAG, "speak: \"$text\"")
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        } else {
+            Log.w(TAG, "speak: TTS not ready yet, message: \"$text\"")
+        }
+    }
+
+    /** Toggles the voice-control state. */
     fun toggle() {
-        if (quickPanel == null) show() else remove()
+        if (!isQuickPanelActive) show() else remove()
     }
 
-    /** Shows the quick panel at the bottom of the screen. */
+    /** Starts the voice control session and greets the user. */
     fun show() {
-        if (quickPanel != null) return
-
-        val backgroundDrawable = android.graphics.drawable.GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), Color.rgb(220, 224, 230))
-        }
-
-        val panel = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = backgroundDrawable
-            elevation = dp(8).toFloat()
-        }
-
-        panel.addView(TextView(context).apply {
-            text = "Mobby controls"
-            textSize = 18f
-            setTextColor(Color.rgb(16, 32, 68))
-        })
-
-        panelMessage = TextView(context).apply {
-            text = "Say a command, or ask what is on this screen."
-            textSize = 14f
-            setTextColor(Color.rgb(74, 84, 110))
-            setPadding(0, dp(4), 0, dp(6))
-        }
-        panel.addView(panelMessage)
-
-        val controls = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        voiceButton = overlayButton("Speak").apply {
-            setOnClickListener { callbacks.onSpeakPressed() }
-        }
-        controls.addView(voiceButton)
-        controls.addView(overlayButton("Guide screen").apply {
-            setOnClickListener { callbacks.onGuidePressed() }
-        })
-        controls.addView(overlayButton("Close").apply {
-            setOnClickListener {
-                callbacks.onClosePressed()
-                remove()
-            }
-        })
-        panel.addView(controls)
-
-        val dm = context.resources.displayMetrics
-        val cardWidth = dp(340).coerceAtMost(dm.widthPixels - dp(32))
-        val params = overlayLayoutParams(cardWidth).apply {
-            x = (dm.widthPixels - cardWidth) / 2
-            y = dm.heightPixels - dp(180)
-        }
-        makeDraggable(panel)
-
-        try {
-            windowManager.addView(panel, params)
-            quickPanel = panel
-            Log.d(TAG, "show: panel added")
-        } catch (e: WindowManager.BadTokenException) {
-            // Service may have been disconnected between the call and the addView.
-            Log.w(TAG, "show: BadTokenException, service likely disconnected", e)
-            quickPanel = null
+        if (isQuickPanelActive) return
+        isQuickPanelActive = true
+        speak("Mobby is ready. Say a command.")
+        scope.launch {
+            delay(1500)
+            callbacks.onSpeakPressed()
         }
     }
 
-    /** Removes the quick panel from the screen. */
+    /** Stops the voice control session. */
     fun remove() {
-        quickPanel?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: IllegalArgumentException) {
-                // View was already detached.
-            }
-        }
-        quickPanel = null
-        panelMessage = null
-        voiceButton = null
-        Log.d(TAG, "remove: panel removed")
+        isQuickPanelActive = false
+        pendingConfirmation = null
     }
 
-    /** Updates the message text shown in the panel, or shows a Toast if the panel isn't visible. */
+    /** Speaks the message and shows a Toast. */
     fun setMessage(message: String) {
-        val view = panelMessage
-        if (view != null) view.text = message else toast(message)
+        toast(message)
+        speak(message)
     }
 
-    /** Enables or disables the voice button. */
+    /** Unused in voice-only mode, but kept for compatibility. */
     fun setVoiceButtonEnabled(enabled: Boolean) {
-        voiceButton?.isEnabled = enabled
+        // No visual buttons to enable/disable
     }
 
-    /**
-     * Shows a confirmation dialog in place of the quick panel.
-     * The [onConfirm] callback runs off the main thread and its result is posted back
-     * to the overlay UI, preventing ANRs from slow accessibility tree traversals or IPC.
-     */
+    /** Shows a voice-based confirmation dialog. */
     fun showConfirmation(
         question: String,
         onConfirm: () -> OperationResult
@@ -153,78 +111,56 @@ class OverlayManager(
         showConfirmation(question, onConfirm, null)
     }
 
+    /** Shows a voice-based confirmation dialog with custom cancel handling. */
     fun showConfirmation(
         question: String,
         onConfirm: () -> OperationResult,
         onCancel: (() -> Unit)?
     ) {
-        if (quickPanel == null) {
-            toast(question)
-            return
+        speak(question)
+        pendingConfirmation = PendingConfirmation(question, onConfirm, onCancel)
+        scope.launch {
+            delay(2000)
+            callbacks.onSpeakPressed()
         }
-        remove()
+    }
 
-        val backgroundDrawable = android.graphics.drawable.GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), Color.rgb(220, 224, 230))
-        }
+    /**
+     * Handles voice confirmation input.
+     * Returns true if it processed a confirmation/cancellation response, false otherwise.
+     */
+    fun handleVoiceConfirmation(transcript: String): Boolean {
+        val pending = pendingConfirmation ?: return false
+        val cleanTranscript = transcript.trim().lowercase()
 
-        val panel = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = backgroundDrawable
-            elevation = dp(8).toFloat()
-        }
+        val confirmWords = listOf("yes", "confirm", "ok", "sure", "yep", "do it", "yeah", "yup", "correct")
+        val cancelWords = listOf("no", "cancel", "stop", "nope", "dont", "don't", "never mind", "nevermind")
 
-        panel.addView(TextView(context).apply {
-            text = question
-            textSize = 16f
-            setTextColor(Color.rgb(16, 32, 68))
-        })
+        val words = cleanTranscript.split(Regex("\\s+"))
+        val isConfirm = confirmWords.any { words.contains(it) }
+        val isCancel = cancelWords.any { words.contains(it) }
 
-        val buttons = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        buttons.addView(overlayButton("Cancel").apply {
-            setOnClickListener {
-                Log.d(TAG, "showConfirmation: cancelled")
-                onCancel?.invoke()
-                remove()
-                show()
-            }
-        })
-
-        val confirmButton = overlayButton("Confirm")
-        confirmButton.setOnClickListener {
-            Log.d(TAG, "showConfirmation: confirmed, running off-thread")
-            confirmButton.isEnabled = false
+        if (isConfirm) {
+            pendingConfirmation = null
             setMessage("Working\u2026")
             scope.launch {
-                val result = withContext(Dispatchers.Default) { onConfirm() }
-                remove()
-                show()
+                val result = withContext(Dispatchers.Default) { pending.onConfirm() }
                 setMessage(result.message)
             }
-        }
-        buttons.addView(confirmButton)
-        panel.addView(buttons)
-
-        val dm = context.resources.displayMetrics
-        val cardWidth = dp(340).coerceAtMost(dm.widthPixels - dp(32))
-        val params = overlayLayoutParams(cardWidth).apply {
-            x = (dm.widthPixels - cardWidth) / 2
-            y = dm.heightPixels - dp(180)
-        }
-        makeDraggable(panel)
-
-        try {
-            windowManager.addView(panel, params)
-            quickPanel = panel
-            Log.d(TAG, "showConfirmation: dialog shown")
-        } catch (e: WindowManager.BadTokenException) {
-            Log.w(TAG, "showConfirmation: BadTokenException", e)
-            quickPanel = null
+            return true
+        } else if (isCancel) {
+            pendingConfirmation = null
+            setMessage("Action cancelled.")
+            pending.onCancel?.invoke()
+            return true
+        } else {
+            // Did not understand confirmation
+            speak("Please say yes to confirm, or no to cancel.")
+            scope.launch {
+                delay(2500)
+                callbacks.onSpeakPressed()
+            }
+            return true
         }
     }
 
@@ -232,64 +168,10 @@ class OverlayManager(
     fun destroy() {
         scope.cancel()
         remove()
+        tts?.stop()
+        tts?.shutdown()
         Log.d(TAG, "destroy: overlay destroyed")
     }
-
-    // ── Helpers ──────────────────────────────────────────────────────────
-
-    private fun overlayButton(label: String): Button =
-        Button(context).apply {
-            isAllCaps = false
-            text = label
-            textSize = 13f
-        }
-
-    private fun overlayLayoutParams(width: Int): WindowManager.LayoutParams =
-        WindowManager.LayoutParams(
-            width,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-        }
-
-    private fun makeDraggable(view: View) {
-        var initialX = 0
-        var initialY = 0
-        var initialTouchX = 0f
-        var initialTouchY = 0f
-
-        view.setOnTouchListener { v, event ->
-            val layoutParams = v.layoutParams as? WindowManager.LayoutParams ?: return@setOnTouchListener false
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = layoutParams.x
-                    initialY = layoutParams.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val deltaX = (event.rawX - initialTouchX).toInt()
-                    val deltaY = (event.rawY - initialTouchY).toInt()
-                    layoutParams.x = initialX + deltaX
-                    layoutParams.y = initialY + deltaY
-                    try {
-                        windowManager.updateViewLayout(v, layoutParams)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to update drag layout", e)
-                    }
-                    true
-                }
-                else -> false
-            }
-        }
-    }
-
-    private fun dp(value: Int): Int =
-        Math.round(value * context.resources.displayMetrics.density)
 
     private fun toast(text: String) {
         Toast.makeText(context, text, Toast.LENGTH_LONG).show()
@@ -297,16 +179,10 @@ class OverlayManager(
 
     /**
      * Callbacks from the overlay panel to the orchestrating service.
-     * This keeps OverlayManager free of any speech or command logic.
      */
     interface Callbacks {
-        /** Called when the user taps the "Speak" button. */
         fun onSpeakPressed()
-
-        /** Called when the user taps the "Guide screen" button. */
         fun onGuidePressed()
-
-        /** Called when the user taps the "Close" button. */
         fun onClosePressed()
     }
 

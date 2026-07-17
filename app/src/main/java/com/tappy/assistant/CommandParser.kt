@@ -60,6 +60,9 @@ object CommandParser {
 
         if (lower == "back" || lower == "go back") return logAndReturn(AgentCommand.of(Type.BACK))
         if (lower == "home" || lower == "go home") return logAndReturn(AgentCommand.of(Type.HOME))
+        if (lower == "goodbye" || lower == "stop" || lower == "exit" || lower == "close" || lower == "never mind" || lower == "nevermind") {
+            return logAndReturn(AgentCommand.of(Type.CLOSE))
+        }
         if (lower == "scroll down" || lower == "scroll up") {
             return logAndReturn(AgentCommand.withTarget(Type.SCROLL, if (lower.endsWith("down")) "down" else "up"))
         }
@@ -125,6 +128,7 @@ object CommandParser {
         REPLY_TO_PERSON,
         REPLY_IN_CURRENT_CONVERSATION,
         SEND_CURRENT_MESSAGE,
+        CLOSE,
         UNSUPPORTED
     }
 

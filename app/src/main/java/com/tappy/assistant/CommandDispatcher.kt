@@ -128,6 +128,11 @@ class CommandDispatcher(
             CommandParser.Type.REPLY_TO_PERSON ->
                 replyFromNotification(command.target, command.text)
 
+            CommandParser.Type.CLOSE -> {
+                overlay.setMessage("Goodbye!")
+                overlay.remove()
+            }
+
             CommandParser.Type.UNSUPPORTED -> {
                 if (geminiBrain.isEnabled()) {
                     startGeminiSession(command.text)

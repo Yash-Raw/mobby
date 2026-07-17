@@ -62,16 +62,38 @@ class OverlayManager(
             } else {
                 isTtsReady = true
                 Log.d(TAG, "onInit: TTS initialized successfully")
+                
+                tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        Log.d(TAG, "TTS onStart: $utteranceId")
+                    }
+
+                    override fun onDone(utteranceId: String?) {
+                        Log.d(TAG, "TTS onDone: $utteranceId")
+                        if ((utteranceId == "mobby_utterance" || utteranceId == "mobby_confirmation") && isQuickPanelActive) {
+                            scope.launch {
+                                callbacks.onSpeakFinished()
+                            }
+                        }
+                    }
+
+                    override fun onError(utteranceId: String?) {
+                        Log.w(TAG, "TTS onError: $utteranceId")
+                    }
+                })
             }
         } else {
             Log.e(TAG, "onInit: TTS initialization failed")
         }
     }
 
-    fun speak(text: String) {
+    fun speak(text: String, utteranceId: String = "mobby_utterance") {
         if (isTtsReady) {
-            Log.d(TAG, "speak: \"$text\"")
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            Log.d(TAG, "speak: \"$text\" (id: $utteranceId)")
+            val params = android.os.Bundle().apply {
+                putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+            }
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
         } else {
             Log.w(TAG, "speak: TTS not ready yet, message: \"$text\"")
         }
@@ -130,10 +152,6 @@ class OverlayManager(
         }
 
         speak("Mobby is ready.")
-        scope.launch {
-            delay(1500)
-            callbacks.onSpeakPressed()
-        }
     }
 
     /** Stops the voice control session and removes the bubble. */
@@ -146,6 +164,7 @@ class OverlayManager(
             } catch (_: IllegalArgumentException) {}
         }
         quickPanel = null
+        callbacks.onClosePressed()
     }
 
     /** Speaks the message and shows a Toast. */
@@ -173,12 +192,8 @@ class OverlayManager(
         onConfirm: () -> OperationResult,
         onCancel: (() -> Unit)?
     ) {
-        speak(question)
+        speak(question, "mobby_confirmation")
         pendingConfirmation = PendingConfirmation(question, onConfirm, onCancel)
-        scope.launch {
-            delay(2000)
-            callbacks.onSpeakPressed()
-        }
     }
 
     /**
@@ -284,6 +299,7 @@ class OverlayManager(
         fun onSpeakPressed()
         fun onGuidePressed()
         fun onClosePressed()
+        fun onSpeakFinished()
     }
 
     companion object {

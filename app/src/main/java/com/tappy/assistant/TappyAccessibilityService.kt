@@ -142,8 +142,16 @@ class TappyAccessibilityService : AccessibilityService(),
     }
 
     override fun onClosePressed() {
-        Log.d(TAG, "onClosePressed: cancelling active Gemini session")
+        Log.d(TAG, "onClosePressed: cancelling active Gemini session and restarting wakeword")
         commandDispatcher?.cancelActiveSession()
+        wakewordDetector?.startListening()
+    }
+
+    override fun onSpeakFinished() {
+        if (overlayManager?.isShowing == true) {
+            Log.d(TAG, "onSpeakFinished: starting voice recognition for continuous conversation")
+            onSpeakPressed()
+        }
     }
 
     // ── VoiceController.Listener ─────────────────────────────────────────
@@ -152,19 +160,17 @@ class TappyAccessibilityService : AccessibilityService(),
         Log.d(TAG, "onVoiceResult: \"$transcript\"")
         overlayManager?.setVoiceButtonEnabled(true)
         if (overlayManager?.handleVoiceConfirmation(transcript) == true) {
-            wakewordDetector?.startListening()
             return
         }
         val command = CommandParser.parse(transcript)
         commandDispatcher?.dispatch(command)
-        wakewordDetector?.startListening()
     }
 
     override fun onVoiceError(errorMessage: String) {
         Log.w(TAG, "onVoiceError: $errorMessage")
         overlayManager?.setVoiceButtonEnabled(true)
-        overlayManager?.setMessage(errorMessage)
-        wakewordDetector?.startListening()
+        overlayManager?.setMessage("Going to sleep.")
+        overlayManager?.remove()
     }
 
     // ── Static API (used by MainActivity and other components) ───────────

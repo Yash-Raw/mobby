@@ -1,5 +1,7 @@
 package com.tappy.assistant
 
+import android.content.Context
+import android.content.SharedPreferences
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -14,6 +16,8 @@ import org.junit.Test
  */
 class CommandDispatcherTest {
 
+    private lateinit var context: Context
+    private lateinit var sharedPrefs: SharedPreferences
     private lateinit var screenReader: ScreenReader
     private lateinit var deviceController: DeviceController
     private lateinit var overlay: OverlayManager
@@ -22,11 +26,16 @@ class CommandDispatcherTest {
 
     @Before
     fun setUp() {
+        context = mockk(relaxed = true)
+        sharedPrefs = mockk(relaxed = true)
+        every { context.getSharedPreferences("mobby_prefs", Context.MODE_PRIVATE) } returns sharedPrefs
+        every { sharedPrefs.getBoolean("require_confirmation", any()) } returns true
+
         screenReader = mockk(relaxed = true)
         deviceController = mockk(relaxed = true)
         overlay = mockk(relaxed = true)
         geminiBrain = mockk(relaxed = true)
-        dispatcher = CommandDispatcher(screenReader, deviceController, overlay, geminiBrain)
+        dispatcher = CommandDispatcher(context, screenReader, deviceController, overlay, geminiBrain)
     }
 
     // ── Read-only commands route to ScreenReader ────────────────────────
@@ -174,6 +183,37 @@ class CommandDispatcherTest {
         verify { overlay.setMessage(capture(messageSlot)) }
         assert(messageSlot.captured.contains("Maya"))
         assert(messageSlot.captured.contains("No active message"))
+    }
+
+    // ── Bypass confirmation tests ───────────────────────────────────────
+
+    @Test
+    fun `TAP non-critical bypasses confirmation when disabled`() {
+        every { sharedPrefs.getBoolean("require_confirmation", any()) } returns false
+
+        dispatcher.dispatch(CommandParser.AgentCommand(CommandParser.Type.TAP, "WhatsApp", ""))
+
+        verify(exactly = 0) { overlay.showConfirmation(any(), any()) }
+        verify { overlay.setMessage(any()) }
+    }
+
+    @Test
+    fun `TAP critical does not bypass confirmation when disabled`() {
+        every { sharedPrefs.getBoolean("require_confirmation", any()) } returns false
+
+        dispatcher.dispatch(CommandParser.AgentCommand(CommandParser.Type.TAP, "Delete Account", ""))
+
+        verify { overlay.showConfirmation(any(), any()) }
+    }
+
+    @Test
+    fun `TYPE_TEXT bypasses confirmation when disabled`() {
+        every { sharedPrefs.getBoolean("require_confirmation", any()) } returns false
+
+        dispatcher.dispatch(CommandParser.AgentCommand(CommandParser.Type.TYPE_TEXT, "", "Hello World"))
+
+        verify(exactly = 0) { overlay.showConfirmation(any(), any()) }
+        verify { overlay.setMessage(any()) }
     }
 
     // ── Helper ──────────────────────────────────────────────────────────

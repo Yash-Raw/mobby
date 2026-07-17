@@ -79,7 +79,7 @@ class TappyAccessibilityService : AccessibilityService(),
 
         geminiBrain = GeminiBrain(this)
 
-        commandDispatcher = CommandDispatcher(screenReader!!, deviceController!!, overlayManager!!, geminiBrain!!)
+        commandDispatcher = CommandDispatcher(this, screenReader!!, deviceController!!, overlayManager!!, geminiBrain!!)
         
         wakewordDetector = WakewordDetector(this) {
             Log.d(TAG, "Wakeword detected: summoning listener")

@@ -100,6 +100,9 @@ class MainActivity : Activity() {
 
         addGeminiKeyCard(page)
 
+        addConfirmationSettingsCard(page)
+
+
         addInstructionCard(
             page,
             "⚡ Quick Shortcut (Volume Keys)",
@@ -376,6 +379,46 @@ class MainActivity : Activity() {
         page.addView(card, fullWidth())
         addSpacing(page, 12)
     }
+
+    private fun addConfirmationSettingsCard(page: LinearLayout) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(14))
+            setBackgroundColor(Color.WHITE)
+        }
+
+        card.addView(text("Confirmation Settings", 18f, getColor(R.color.mobby_navy)).apply {
+            setTypeface(null, 1)
+        })
+
+        card.addView(text("By default, Mobby asks for confirmation before performing any action. Turn this off to execute non-critical actions automatically.", 14f, getColor(R.color.mobby_muted)).apply {
+            setPadding(0, dp(6), 0, dp(6))
+        })
+
+        val sharedPreferences = getSharedPreferences("mobby_prefs", MODE_PRIVATE)
+        val requireConfirmation = sharedPreferences.getBoolean("require_confirmation", true)
+
+        val toggleButton = Button(this).apply {
+            isAllCaps = false
+            text = if (requireConfirmation) "Confirmation: Required" else "Confirmation: Disabled (Auto-execute)"
+            setOnClickListener {
+                val currentVal = sharedPreferences.getBoolean("require_confirmation", true)
+                val newVal = !currentVal
+                sharedPreferences.edit().putBoolean("require_confirmation", newVal).apply()
+                text = if (newVal) "Confirmation: Required" else "Confirmation: Disabled (Auto-execute)"
+                Toast.makeText(
+                    this@MainActivity,
+                    if (newVal) "Confirmation required for all actions" else "Confirmation disabled for non-critical actions",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        card.addView(toggleButton)
+
+        page.addView(card, fullWidth())
+        addSpacing(page, 12)
+    }
+
 
     private fun openDeviceControls() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {

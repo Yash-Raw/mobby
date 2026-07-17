@@ -1,5 +1,6 @@
 package com.tappy.assistant
 
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import org.json.JSONObject
  * entirely through its constructor dependencies, making it straightforward to unit-test.
  */
 class CommandDispatcher(
+    private val context: Context,
     private val screenReader: ScreenReader,
     private val deviceController: DeviceController,
     private val overlay: OverlayManager,
@@ -58,19 +60,61 @@ class CommandDispatcher(
                 overlay.setMessage(deviceController.scrollActiveWindow(command.target).message)
 
             CommandParser.Type.TAP ->
-                overlay.showConfirmation("Tap \u201C${command.target}\u201D?") {
-                    deviceController.tapControl(command.target)
+                if (needsConfirmation(command.target, isTap = true)) {
+                    overlay.showConfirmation("Tap \u201C${command.target}\u201D?") {
+                        deviceController.tapControl(command.target)
+                    }
+                } else {
+                    overlay.setMessage("Tapping \u201C${command.target}\u201D\u2026")
+                    scope.launch {
+                        withContext(Dispatchers.Default) {
+                            val result = deviceController.tapControl(command.target)
+                            if (!result.successful) {
+                                withContext(Dispatchers.Main) {
+                                    overlay.setMessage(result.message)
+                                }
+                            }
+                        }
+                    }
                 }
 
             CommandParser.Type.TYPE_TEXT,
             CommandParser.Type.REPLY_IN_CURRENT_CONVERSATION ->
-                overlay.showConfirmation("Type this into the active field?\n\u201C${command.text}\u201D") {
-                    deviceController.setFocusedText(command.text)
+                if (needsConfirmation()) {
+                    overlay.showConfirmation("Type this into the active field?\n\u201C${command.text}\u201D") {
+                        deviceController.setFocusedText(command.text)
+                    }
+                } else {
+                    overlay.setMessage("Typing\u2026")
+                    scope.launch {
+                        withContext(Dispatchers.Default) {
+                            val result = deviceController.setFocusedText(command.text)
+                            if (!result.successful) {
+                                withContext(Dispatchers.Main) {
+                                    overlay.setMessage(result.message)
+                                }
+                            }
+                        }
+                    }
                 }
 
             CommandParser.Type.SEND_CURRENT_MESSAGE ->
-                overlay.showConfirmation("Tap the visible Send control?") {
-                    deviceController.tapControl("send")
+                if (needsConfirmation(target = "send", isTap = true)) {
+                    overlay.showConfirmation("Tap the visible Send control?") {
+                        deviceController.tapControl("send")
+                    }
+                } else {
+                    overlay.setMessage("Sending\u2026")
+                    scope.launch {
+                        withContext(Dispatchers.Default) {
+                            val result = deviceController.tapControl("send")
+                            if (!result.successful) {
+                                withContext(Dispatchers.Main) {
+                                    overlay.setMessage(result.message)
+                                }
+                            }
+                        }
+                    }
                 }
 
             CommandParser.Type.CHECK_MESSAGES_FROM -> {
@@ -202,7 +246,13 @@ class CommandDispatcher(
         runAction: () -> OperationResult,
         delayMs: Long
     ) {
-        val needsConfirm = action.requiresConfirmation || isCriticalAction(action)
+        val globalRequire = context.getSharedPreferences("mobby_prefs", Context.MODE_PRIVATE)
+            .getBoolean("require_confirmation", true)
+        val needsConfirm = if (globalRequire) {
+            action.requiresConfirmation || isCriticalAction(action)
+        } else {
+            isCriticalAction(action)
+        }
         val thoughtPrefix = if (action.thought.isNotEmpty()) "[AI: ${action.thought}]\n" else ""
 
         if (needsConfirm) {
@@ -296,20 +346,56 @@ class CommandDispatcher(
             )
             return
         }
-        overlay.showConfirmation("Reply to ${message.sender}?\n\u201C$reply\u201D") {
-            val result = TappyNotificationListener.reply(message.key, reply)
-            if (result.sent) {
-                Log.d(TAG, "replyFromNotification: reply sent to ${message.sender}")
-                OperationResult.success("Reply sent to ${message.sender}.")
-            } else {
-                Log.w(TAG, "replyFromNotification: reply failed — ${result.errorMessage}")
-                OperationResult.failure(result.errorMessage)
+        if (needsConfirmation(isSend = true)) {
+            overlay.showConfirmation("Reply to ${message.sender}?\n\u201C$reply\u201D") {
+                val result = TappyNotificationListener.reply(message.key, reply)
+                if (result.sent) {
+                    Log.d(TAG, "replyFromNotification: reply sent to ${message.sender}")
+                    OperationResult.success("Reply sent to ${message.sender}.")
+                } else {
+                    Log.w(TAG, "replyFromNotification: reply failed — ${result.errorMessage}")
+                    OperationResult.failure(result.errorMessage)
+                }
+            }
+        } else {
+            overlay.setMessage("Sending reply to ${message.sender}\u2026")
+            scope.launch {
+                withContext(Dispatchers.Default) {
+                    val result = TappyNotificationListener.reply(message.key, reply)
+                    withContext(Dispatchers.Main) {
+                        if (result.sent) {
+                            Log.d(TAG, "replyFromNotification: reply sent to ${message.sender}")
+                            overlay.setMessage("Reply sent to ${message.sender}.")
+                        } else {
+                            Log.w(TAG, "replyFromNotification: reply failed — ${result.errorMessage}")
+                            overlay.setMessage("Reply failed: ${result.errorMessage}")
+                        }
+                    }
+                }
             }
         }
     }
 
     private fun safeMessageText(message: TappyNotificationListener.MessageSnapshot): String =
         if (message.text.isEmpty()) "the messaging app hid the message content" else message.text
+
+    private fun needsConfirmation(target: String = "", isTap: Boolean = false, isSend: Boolean = false): Boolean {
+        val sharedPrefs = context.getSharedPreferences("mobby_prefs", Context.MODE_PRIVATE)
+        val globalRequire = sharedPrefs.getBoolean("require_confirmation", true)
+        if (!globalRequire) {
+            if (isTap) {
+                val lower = target.lowercase()
+                return lower.contains("send") || lower.contains("delete") || 
+                       lower.contains("confirm") || lower.contains("submit") || 
+                       lower.contains("discard")
+            }
+            if (isSend) {
+                return true
+            }
+            return false
+        }
+        return true
+    }
 
     companion object {
         private const val TAG = "MobbyDispatch"

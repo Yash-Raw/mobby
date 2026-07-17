@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="mobby_blue">#2E6BFF</color>
+    <color name="mobby_navy">#102044</color>
+    <color name="mobby_bg">#F7F9FF</color>
+    <color name="mobby_success">#16794A</color>
+    <color name="mobby_muted">#5D6680</color>
+</resources>

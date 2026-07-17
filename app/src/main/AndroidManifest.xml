@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_mobby"
+        android:label="Mobby"
+        android:roundIcon="@drawable/ic_mobby"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Mobby">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Lets Mobby inspect active message notifications and use a notification's
+             own Direct Reply action only after the user has enabled this in Settings. -->
+        <service
+            android:name=".TappyNotificationListener"
+            android:exported="true"
+            android:label="Mobby message access"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Android displays this disclosure in Accessibility settings. The system activates
+             the service only after the device owner enables it there. -->
+        <service
+            android:name=".TappyAccessibilityService"
+            android:exported="true"
+            android:label="Mobby accessibility controls"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/mobby_accessibility_service" />
+        </service>
+    </application>
+
+</manifest>

@@ -1,0 +1,47 @@
+# Built artifacts and Gradle files
+.gradle/
+build/
+app/build/
+/build
+/app/build
+*.apk
+*.aar
+*.ap_
+*.aab
+*.dex
+*.class
+bin/
+gen/
+out/
+proguard/
+
+# Local configuration file (sdk path, secrets, etc)
+local.properties
+.env
+.env.*
+
+# JetBrains / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea/caches/
+.idea/libraries/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/shelf/
+.idea/gradle.xml
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services Keys
+google-services.json
+
+# OS files
+.DS_Store
+Thumbs.db
+

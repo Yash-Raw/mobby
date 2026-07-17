@@ -1,11 +1,16 @@
 package com.tappy.assistant
 
 import android.content.Context
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
@@ -19,7 +24,8 @@ import java.util.Locale
 
 /**
  * Manages Mobby's text-to-speech feedback and voice-based confirmations.
- * The visual overlay control panel has been removed to make Mobby completely voice-based.
+ * Displays an elegant, unobtrusive floating circular bubble on screen when active
+ * to serve as the visual window context required by Android to perform microphone access.
  */
 class OverlayManager(
     private val context: Context,
@@ -32,6 +38,7 @@ class OverlayManager(
     private var tts: TextToSpeech? = null
     private var isTtsReady = false
     private var isQuickPanelActive = false
+    private var quickPanel: View? = null
 
     val isShowing: Boolean get() = isQuickPanelActive
 
@@ -75,21 +82,70 @@ class OverlayManager(
         if (!isQuickPanelActive) show() else remove()
     }
 
-    /** Starts the voice control session and greets the user. */
+    /** Starts the voice control session, shows a minimal status bubble, and greets the user. */
     fun show() {
         if (isQuickPanelActive) return
         isQuickPanelActive = true
-        speak("Mobby is ready. Say a command.")
+
+        val bubble = ImageView(context).apply {
+            setImageResource(R.drawable.ic_mobby)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+
+            val backgroundDrawable = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.argb(230, 255, 255, 255)) // Translucent white (glassmorphism)
+                cornerRadius = dp(28).toFloat()
+                setStroke(dp(2), Color.rgb(46, 107, 255)) // Blue border
+            }
+            background = backgroundDrawable
+            elevation = dp(8).toFloat()
+
+            setOnClickListener {
+                callbacks.onSpeakPressed()
+            }
+        }
+
+        val dm = context.resources.displayMetrics
+        val size = dp(56)
+        val params = WindowManager.LayoutParams(
+            size,
+            size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = dm.widthPixels - size - dp(16)
+            y = dm.heightPixels / 2
+        }
+
+        makeDraggable(bubble)
+
+        try {
+            windowManager.addView(bubble, params)
+            quickPanel = bubble
+            Log.d(TAG, "show: floating bubble added")
+        } catch (e: WindowManager.BadTokenException) {
+            Log.w(TAG, "show: BadTokenException", e)
+            quickPanel = null
+        }
+
+        speak("Mobby is ready.")
         scope.launch {
             delay(1500)
             callbacks.onSpeakPressed()
         }
     }
 
-    /** Stops the voice control session. */
+    /** Stops the voice control session and removes the bubble. */
     fun remove() {
         isQuickPanelActive = false
         pendingConfirmation = null
+        quickPanel?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: IllegalArgumentException) {}
+        }
+        quickPanel = null
     }
 
     /** Speaks the message and shows a Toast. */
@@ -176,6 +232,50 @@ class OverlayManager(
     private fun toast(text: String) {
         Toast.makeText(context, text, Toast.LENGTH_LONG).show()
     }
+
+    private fun makeDraggable(view: View) {
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+
+        view.setOnTouchListener { v, event ->
+            val layoutParams = v.layoutParams as? WindowManager.LayoutParams ?: return@setOnTouchListener false
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = layoutParams.x
+                    initialY = layoutParams.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = (event.rawX - initialTouchX).toInt()
+                    val deltaY = (event.rawY - initialTouchY).toInt()
+                    layoutParams.x = initialX + deltaX
+                    layoutParams.y = initialY + deltaY
+                    try {
+                        windowManager.updateViewLayout(v, layoutParams)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to update drag layout", e)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val deltaX = Math.abs(event.rawX - initialTouchX)
+                    val deltaY = Math.abs(event.rawY - initialTouchY)
+                    if (deltaX < 5 && deltaY < 5) {
+                        v.performClick()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun dp(value: Int): Int =
+        Math.round(value * context.resources.displayMetrics.density)
 
     /**
      * Callbacks from the overlay panel to the orchestrating service.

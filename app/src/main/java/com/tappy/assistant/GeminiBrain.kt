@@ -14,7 +14,7 @@ class GeminiBrain(private val context: Context) {
 
     companion object {
         private const val TAG = "MobbyGemini"
-        private const val MODEL_NAME = "gemini-1.5-flash"
+        private const val MODEL_NAME = "gemini-2.5-flash"
     }
 
     private val sharedPrefs = context.getSharedPreferences("mobby_prefs", Context.MODE_PRIVATE)

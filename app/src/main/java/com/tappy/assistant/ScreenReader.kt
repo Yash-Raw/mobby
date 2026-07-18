@@ -163,7 +163,7 @@ class ScreenReader(private val provider: AccessibilityNodeProvider) {
 
     companion object {
         private const val TAG = "MobbyScreen"
-        internal const val MAX_SCREEN_ITEMS = 18
+        internal const val MAX_SCREEN_ITEMS = 80
 
         /** Extracts the best human-readable label from an accessibility node. */
         fun nodeLabel(node: AccessibilityNodeInfo): String {

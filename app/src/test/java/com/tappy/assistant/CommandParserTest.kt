@@ -365,6 +365,37 @@ class CommandParserTest {
         assertEquals("Search", command.target)
     }
 
+    // ── LocalIntentClassifier tests ─────────────────────────────────────
+
+    @Test
+    fun `local intent classifier maps natural home phrasing`() {
+        assertType("please go to the home screen", CommandParser.Type.HOME)
+    }
+
+    @Test
+    fun `local intent classifier maps natural describe screen phrasing`() {
+        assertType("tell me what you see on the screen", CommandParser.Type.DESCRIBE_SCREEN)
+    }
+
+    @Test
+    fun `local intent classifier maps natural tap phrasing and extracts target`() {
+        val command = CommandParser.parse("click on search button")
+        assertEquals(CommandParser.Type.TAP, command.type)
+        assertEquals("search button", command.target)
+    }
+
+    @Test
+    fun `local intent classifier maps natural type phrasing and extracts text`() {
+        val command = CommandParser.parse("write down hello world")
+        assertEquals(CommandParser.Type.TYPE_TEXT, command.type)
+        assertEquals("hello world", command.text)
+    }
+
+    @Test
+    fun `local intent classifier maps close phrasing`() {
+        assertType("never mind please", CommandParser.Type.CLOSE)
+    }
+
     // ── Helper ──────────────────────────────────────────────────────────
 
     private fun assertType(transcript: String?, expectedType: CommandParser.Type) {

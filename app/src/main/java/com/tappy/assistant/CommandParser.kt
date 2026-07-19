@@ -25,11 +25,11 @@ object CommandParser {
         RegexOption.IGNORE_CASE
     )
     private val TAP = Regex(
-        """\b(?:tap|click|press|open)\s+(.+)$""",
+        """\b(?:tap\s+on|click\s+on|tap|click|press|open)\s+(.+)$""",
         RegexOption.IGNORE_CASE
     )
     private val TYPE = Regex(
-        """\b(?:type|write|enter)\s+(.+)$""",
+        """\b(?:type\s+in|write\s+down|enter\s+text|type|write|enter)\s+(.+)$""",
         RegexOption.IGNORE_CASE
     )
 
@@ -39,6 +39,69 @@ object CommandParser {
         val lower = cleaned.lowercase(Locale.ROOT)
         if (cleaned.isEmpty()) return AgentCommand.unsupported()
 
+        // 1. Strict regex and string checks first
+        if (lower.containsAny(
+                "what's on screen", "what is on screen", "read the screen",
+                "read screen", "describe the screen", "describe screen",
+                "tell me what's on screen", "tell me what is on screen", "where am i"
+            )
+        ) return logAndReturn(AgentCommand.of(Type.DESCRIBE_SCREEN))
+
+        if (lower.containsAny(
+                "how do i use this", "guide me", "help me use this app",
+                "what can i do here", "explain this screen"
+            )
+        ) return logAndReturn(AgentCommand.of(Type.GUIDE_SCREEN))
+
+        if (lower.containsAny(
+                "what can i tap", "list controls", "show controls",
+                "what buttons are here"
+            )
+        ) return logAndReturn(AgentCommand.of(Type.LIST_CONTROLS))
+
+        if (lower == "back" || lower == "go back") return logAndReturn(AgentCommand.of(Type.BACK))
+        if (lower == "home" || lower == "go home") return logAndReturn(AgentCommand.of(Type.HOME))
+        if (lower == "goodbye" || lower == "stop" || lower == "exit" || lower == "close" || lower == "never mind" || lower == "nevermind") {
+            return logAndReturn(AgentCommand.of(Type.CLOSE))
+        }
+        if (lower == "scroll down" || lower == "scroll up") {
+            return logAndReturn(AgentCommand.withTarget(Type.SCROLL, if (lower.endsWith("down")) "down" else "up"))
+        }
+        if (lower == "send" || lower == "send message" || lower == "tap send") {
+            return logAndReturn(AgentCommand.of(Type.SEND_CURRENT_MESSAGE))
+        }
+
+        CHECK_AND_REPLY.find(cleaned)?.let { match ->
+            return logAndReturn(AgentCommand.withTargetAndText(
+                Type.REPLY_TO_PERSON,
+                match.groupValues[1],
+                stripTerminalPunctuation(match.groupValues[2])
+            ))
+        }
+        REPLY_TO_PERSON.find(cleaned)?.let { match ->
+            return logAndReturn(AgentCommand.withTargetAndText(
+                Type.REPLY_TO_PERSON,
+                match.groupValues[1],
+                stripTerminalPunctuation(match.groupValues[2])
+            ))
+        }
+        CHECK_MESSAGES.find(cleaned)?.let { match ->
+            return logAndReturn(AgentCommand.withTarget(Type.CHECK_MESSAGES_FROM, match.groupValues[1]))
+        }
+        REPLY_IN_CURRENT_CONVERSATION.find(cleaned)?.let { match ->
+            return logAndReturn(AgentCommand.withText(
+                Type.REPLY_IN_CURRENT_CONVERSATION,
+                stripTerminalPunctuation(match.groupValues[1])
+            ))
+        }
+        TYPE.find(cleaned)?.let { match ->
+            return logAndReturn(AgentCommand.withText(Type.TYPE_TEXT, stripTerminalPunctuation(match.groupValues[1])))
+        }
+        TAP.find(cleaned)?.let { match ->
+            return logAndReturn(AgentCommand.withTarget(Type.TAP, stripTerminalPunctuation(match.groupValues[1])))
+        }
+
+        // 2. Fallback to LocalIntentClassifier for natural semantic matching
         val classification = LocalIntentClassifier.classify(cleaned)
         if (classification != null) {
             val type = classification.type
@@ -110,67 +173,6 @@ object CommandParser {
                 }
                 else -> {}
             }
-        }
-
-        if (lower.containsAny(
-                "what's on screen", "what is on screen", "read the screen",
-                "read screen", "describe the screen", "describe screen",
-                "tell me what's on screen", "tell me what is on screen", "where am i"
-            )
-        ) return logAndReturn(AgentCommand.of(Type.DESCRIBE_SCREEN))
-
-        if (lower.containsAny(
-                "how do i use this", "guide me", "help me use this app",
-                "what can i do here", "explain this screen"
-            )
-        ) return logAndReturn(AgentCommand.of(Type.GUIDE_SCREEN))
-
-        if (lower.containsAny(
-                "what can i tap", "list controls", "show controls",
-                "what buttons are here"
-            )
-        ) return logAndReturn(AgentCommand.of(Type.LIST_CONTROLS))
-
-        if (lower == "back" || lower == "go back") return logAndReturn(AgentCommand.of(Type.BACK))
-        if (lower == "home" || lower == "go home") return logAndReturn(AgentCommand.of(Type.HOME))
-        if (lower == "goodbye" || lower == "stop" || lower == "exit" || lower == "close" || lower == "never mind" || lower == "nevermind") {
-            return logAndReturn(AgentCommand.of(Type.CLOSE))
-        }
-        if (lower == "scroll down" || lower == "scroll up") {
-            return logAndReturn(AgentCommand.withTarget(Type.SCROLL, if (lower.endsWith("down")) "down" else "up"))
-        }
-        if (lower == "send" || lower == "send message" || lower == "tap send") {
-            return logAndReturn(AgentCommand.of(Type.SEND_CURRENT_MESSAGE))
-        }
-
-        CHECK_AND_REPLY.find(cleaned)?.let { match ->
-            return logAndReturn(AgentCommand.withTargetAndText(
-                Type.REPLY_TO_PERSON,
-                match.groupValues[1],
-                stripTerminalPunctuation(match.groupValues[2])
-            ))
-        }
-        REPLY_TO_PERSON.find(cleaned)?.let { match ->
-            return logAndReturn(AgentCommand.withTargetAndText(
-                Type.REPLY_TO_PERSON,
-                match.groupValues[1],
-                stripTerminalPunctuation(match.groupValues[2])
-            ))
-        }
-        CHECK_MESSAGES.find(cleaned)?.let { match ->
-            return logAndReturn(AgentCommand.withTarget(Type.CHECK_MESSAGES_FROM, match.groupValues[1]))
-        }
-        REPLY_IN_CURRENT_CONVERSATION.find(cleaned)?.let { match ->
-            return logAndReturn(AgentCommand.withText(
-                Type.REPLY_IN_CURRENT_CONVERSATION,
-                stripTerminalPunctuation(match.groupValues[1])
-            ))
-        }
-        TYPE.find(cleaned)?.let { match ->
-            return logAndReturn(AgentCommand.withText(Type.TYPE_TEXT, stripTerminalPunctuation(match.groupValues[1])))
-        }
-        TAP.find(cleaned)?.let { match ->
-            return logAndReturn(AgentCommand.withTarget(Type.TAP, stripTerminalPunctuation(match.groupValues[1])))
         }
 
         Log.d(TAG, "parse: unsupported transcript=\"$cleaned\"")

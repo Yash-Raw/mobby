@@ -144,8 +144,20 @@ object LocalIntentClassifier {
             }
         }
 
-        // Classification threshold (e.g. 0.35 is good for short phrases)
-        return if (bestMatchIdx != -1 && maxSimilarity >= 0.35) {
+        if (bestMatchIdx == -1) return null
+
+        val queryTokens = tokenize(query)
+        val bestPhraseTokens = tokenize(TRAINING_PHRASES[bestMatchIdx].phrase)
+        val intersectionSize = queryTokens.filter { bestPhraseTokens.contains(it) }.size
+
+        // To prevent false positives from single-word overlaps in multi-word exemplars:
+        val isAccepted = if (bestPhraseTokens.size > 1 && intersectionSize <= 1) {
+            false
+        } else {
+            maxSimilarity >= 0.35
+        }
+
+        return if (isAccepted) {
             ClassificationResult(TRAINING_PHRASES[bestMatchIdx].type, maxSimilarity)
         } else {
             null

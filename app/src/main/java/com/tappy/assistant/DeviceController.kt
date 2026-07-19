@@ -27,10 +27,14 @@ class DeviceController(private val service: AccessibilityService) {
         if (TextUtils.isEmpty(wantedLabel)) {
             return OperationResult.failure("Tell me the label of the button or control to tap.")
         }
+        return tapControlInternal(wantedLabel, attemptSelfCorrection = true)
+    }
+
+    private fun tapControlInternal(wantedLabel: String, attemptSelfCorrection: Boolean): OperationResult {
         val root = service.rootInActiveWindow
             ?: return OperationResult.failure("I can't reach the current screen.")
         var target: AccessibilityNodeInfo? = null
-        return try {
+        try {
             target = findActionableNode(root, wantedLabel)
             if (target != null) {
                 if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
@@ -45,22 +49,80 @@ class DeviceController(private val service: AccessibilityService) {
                     Log.d(TAG, "tapControl: tapped \"$wantedLabel\" via coordinate gesture fallback")
                     return OperationResult.success("Tapped \u201C$wantedLabel\u201D.")
                 }
+
+                // Fallback 2: Tap standard container bounds (the target's parent/container)
+                val parent = target.parent
+                if (parent != null) {
+                    val parentRect = Rect()
+                    parent.getBoundsInScreen(parentRect)
+                    NodeCompat.recycle(parent)
+                    if (tapGesture(parentRect.centerX().toFloat(), parentRect.centerY().toFloat())) {
+                        Log.d(TAG, "tapControl: tapped \"$wantedLabel\" via container bounds fallback")
+                        return OperationResult.success("Tapped \u201C$wantedLabel\u201D.")
+                    }
+                }
             }
             
-            // Fallback 2: Find any matching node by label (clickable or not) and tap its coordinates
+            // Fallback 3: Find any matching node by label (clickable or not) and tap its coordinates
             val fallbackNode = findNodeByLabel(root, wantedLabel)
             if (fallbackNode != null) {
                 val rect = Rect()
                 fallbackNode.getBoundsInScreen(rect)
+                val fallbackParent = fallbackNode.parent
                 NodeCompat.recycle(fallbackNode)
                 if (tapGesture(rect.centerX().toFloat(), rect.centerY().toFloat())) {
+                    NodeCompat.recycle(fallbackParent)
                     Log.d(TAG, "tapControl: tapped \"$wantedLabel\" via text coordinate fallback")
                     return OperationResult.success("Tapped \u201C$wantedLabel\u201D.")
                 }
+                if (fallbackParent != null) {
+                    val pRect = Rect()
+                    fallbackParent.getBoundsInScreen(pRect)
+                    NodeCompat.recycle(fallbackParent)
+                    if (tapGesture(pRect.centerX().toFloat(), pRect.centerY().toFloat())) {
+                        Log.d(TAG, "tapControl: tapped \"$wantedLabel\" via text container bounds fallback")
+                        return OperationResult.success("Tapped \u201C$wantedLabel\u201D.")
+                    }
+                }
             }
 
-            Log.w(TAG, "tapControl: failed to tap \"$wantedLabel\"")
-            OperationResult.failure("Android would not activate \u201C$wantedLabel\u201D.")
+            // If we get here, normal and container-bounds taps failed.
+            if (attemptSelfCorrection) {
+                Log.d(TAG, "tapControl: attempting self-correction scroll loops for \"$wantedLabel\"")
+                
+                // 1. Scroll down and retry
+                Log.d(TAG, "tapControl: scrolling down to bring \"$wantedLabel\" into view")
+                val scrollDownResult = scrollActiveWindow("down")
+                if (scrollDownResult.successful) {
+                    try {
+                        Thread.sleep(1000)
+                    } catch (e: InterruptedException) {
+                        Log.w(TAG, "sleep interrupted during self-correction", e)
+                    }
+                    val retryResult = tapControlInternal(wantedLabel, attemptSelfCorrection = false)
+                    if (retryResult.successful) {
+                        return retryResult
+                    }
+                }
+
+                // 2. Scroll up and retry
+                Log.d(TAG, "tapControl: scrolling up to bring \"$wantedLabel\" into view")
+                val scrollUpResult = scrollActiveWindow("up")
+                if (scrollUpResult.successful) {
+                    try {
+                        Thread.sleep(1000)
+                    } catch (e: InterruptedException) {
+                        Log.w(TAG, "sleep interrupted during self-correction", e)
+                    }
+                    val retryResult = tapControlInternal(wantedLabel, attemptSelfCorrection = false)
+                    if (retryResult.successful) {
+                        return retryResult
+                    }
+                }
+            }
+
+            Log.w(TAG, "tapControl: failed to tap \"$wantedLabel\" after all fallbacks/retries")
+            return OperationResult.failure("Android would not activate \u201C$wantedLabel\u201D.")
         } finally {
             NodeCompat.recycle(target)
             NodeCompat.recycle(root)

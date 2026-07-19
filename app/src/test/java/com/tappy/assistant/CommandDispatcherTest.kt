@@ -6,6 +6,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -24,8 +30,10 @@ class CommandDispatcherTest {
     private lateinit var geminiBrain: GeminiBrain
     private lateinit var dispatcher: CommandDispatcher
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Before
     fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
         context = mockk(relaxed = true)
         sharedPrefs = mockk(relaxed = true)
         every { context.getSharedPreferences("mobby_prefs", Context.MODE_PRIVATE) } returns sharedPrefs
@@ -36,6 +44,12 @@ class CommandDispatcherTest {
         overlay = mockk(relaxed = true)
         geminiBrain = mockk(relaxed = true)
         dispatcher = CommandDispatcher(context, screenReader, deviceController, overlay, geminiBrain)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
     }
 
     // ── Read-only commands route to ScreenReader ────────────────────────
@@ -214,6 +228,33 @@ class CommandDispatcherTest {
 
         verify(exactly = 0) { overlay.showConfirmation(any(), any()) }
         verify { overlay.setMessage(any()) }
+    }
+
+    @Test
+    fun `TAP failing with confirmation shows clarification message`() {
+        every { deviceController.tapControl("Search") } returns OperationResult.failure("Failure")
+        
+        dispatcher.dispatch(CommandParser.AgentCommand(CommandParser.Type.TAP, "Search", ""))
+        
+        val confirmCallbackSlot = slot<() -> OperationResult>()
+        verify { overlay.showConfirmation(any(), capture(confirmCallbackSlot)) }
+        confirmCallbackSlot.captured.invoke()
+        
+        verify(timeout = 2000) {
+            overlay.setMessage("I couldn't tap \u201CSearch\u201D. Could you clarify where it is, or tap it yourself?")
+        }
+    }
+
+    @Test
+    fun `TAP failing without confirmation shows clarification message`() {
+        every { sharedPrefs.getBoolean("require_confirmation", any()) } returns false
+        every { deviceController.tapControl("Search") } returns OperationResult.failure("Failure")
+        
+        dispatcher.dispatch(CommandParser.AgentCommand(CommandParser.Type.TAP, "Search", ""))
+        
+        verify(timeout = 2000) {
+            overlay.setMessage("I couldn't tap \u201CSearch\u201D. Could you clarify where it is, or tap it yourself?")
+        }
     }
 
     // ── Helper ──────────────────────────────────────────────────────────

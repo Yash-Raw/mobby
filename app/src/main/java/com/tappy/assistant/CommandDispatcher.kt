@@ -62,7 +62,13 @@ class CommandDispatcher(
             CommandParser.Type.TAP ->
                 if (needsConfirmation(command.target, isTap = true)) {
                     overlay.showConfirmation("Tap \u201C${command.target}\u201D?") {
-                        deviceController.tapControl(command.target)
+                        val result = deviceController.tapControl(command.target)
+                        if (!result.successful) {
+                            scope.launch {
+                                overlay.setMessage("I couldn't tap \u201C${command.target}\u201D. Could you clarify where it is, or tap it yourself?")
+                            }
+                        }
+                        result
                     }
                 } else {
                     overlay.setMessage("Tapping \u201C${command.target}\u201D\u2026")
@@ -71,7 +77,7 @@ class CommandDispatcher(
                             val result = deviceController.tapControl(command.target)
                             if (!result.successful) {
                                 withContext(Dispatchers.Main) {
-                                    overlay.setMessage(result.message)
+                                    overlay.setMessage("I couldn't tap \u201C${command.target}\u201D. Could you clarify where it is, or tap it yourself?")
                                 }
                             }
                         }
@@ -101,7 +107,13 @@ class CommandDispatcher(
             CommandParser.Type.SEND_CURRENT_MESSAGE ->
                 if (needsConfirmation(target = "send", isTap = true)) {
                     overlay.showConfirmation("Tap the visible Send control?") {
-                        deviceController.tapControl("send")
+                        val result = deviceController.tapControl("send")
+                        if (!result.successful) {
+                            scope.launch {
+                                overlay.setMessage("I couldn't tap the send control. Could you clarify where it is, or tap it yourself?")
+                            }
+                        }
+                        result
                     }
                 } else {
                     overlay.setMessage("Sending\u2026")
@@ -110,7 +122,7 @@ class CommandDispatcher(
                             val result = deviceController.tapControl("send")
                             if (!result.successful) {
                                 withContext(Dispatchers.Main) {
-                                    overlay.setMessage(result.message)
+                                    overlay.setMessage("I couldn't tap the send control. Could you clarify where it is, or tap it yourself?")
                                 }
                             }
                         }
@@ -281,7 +293,7 @@ class CommandDispatcher(
                         }
                     } else {
                         scope.launch {
-                            logFailureAndResume(session, result.message)
+                            handleActionFailure(action, result.message)
                         }
                     }
                     result
@@ -304,10 +316,21 @@ class CommandDispatcher(
                     delay(delayMs)
                     executeGeminiNextStep(session)
                 } else {
-                    logFailureAndResume(session, result.message)
+                    handleActionFailure(action, result.message)
                 }
             }
         }
+    }
+
+    private fun handleActionFailure(action: GeminiAction, errorMessage: String) {
+        currentGeminiSession = null
+        val message = when (action.action) {
+            "TAP" -> "I couldn't tap \u201C${action.target}\u201D. Could you clarify where it is, or tap it yourself?"
+            "TYPE" -> "I couldn't type that text. Could you help or tell me what to do next?"
+            "SCROLL" -> "I couldn't scroll the screen. Could you help or tell me what to do next?"
+            else -> "I couldn't perform that step. Could you help or tell me what to do next?"
+        }
+        overlay.setMessage(message)
     }
 
     private fun isCriticalAction(action: GeminiAction): Boolean {

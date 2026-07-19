@@ -51,35 +51,35 @@ class CommandDispatcher(
                 overlay.setMessage(screenReader.listActiveControls().message)
 
             CommandParser.Type.BACK ->
-                overlay.setMessage(deviceController.goBack().message)
+                scope.launch {
+                    overlay.setMessage(deviceController.goBack().message)
+                }
 
             CommandParser.Type.HOME ->
-                overlay.setMessage(deviceController.goHome().message)
+                scope.launch {
+                    overlay.setMessage(deviceController.goHome().message)
+                }
 
             CommandParser.Type.SCROLL ->
-                overlay.setMessage(deviceController.scrollActiveWindow(command.target).message)
+                scope.launch {
+                    overlay.setMessage(deviceController.scrollActiveWindow(command.target).message)
+                }
 
             CommandParser.Type.TAP ->
                 if (needsConfirmation(command.target, isTap = true)) {
                     overlay.showConfirmation("Tap \u201C${command.target}\u201D?") {
                         val result = deviceController.tapControl(command.target)
                         if (!result.successful) {
-                            scope.launch {
-                                overlay.setMessage("I couldn't tap \u201C${command.target}\u201D. Could you clarify where it is, or tap it yourself?")
-                            }
+                            overlay.setMessage("I couldn't tap \u201C${command.target}\u201D. Could you clarify where it is, or tap it yourself?")
                         }
                         result
                     }
                 } else {
                     overlay.setMessage("Tapping \u201C${command.target}\u201D\u2026")
                     scope.launch {
-                        withContext(Dispatchers.Default) {
-                            val result = deviceController.tapControl(command.target)
-                            if (!result.successful) {
-                                withContext(Dispatchers.Main) {
-                                    overlay.setMessage("I couldn't tap \u201C${command.target}\u201D. Could you clarify where it is, or tap it yourself?")
-                                }
-                            }
+                        val result = deviceController.tapControl(command.target)
+                        if (!result.successful) {
+                            overlay.setMessage("I couldn't tap \u201C${command.target}\u201D. Could you clarify where it is, or tap it yourself?")
                         }
                     }
                 }
@@ -93,13 +93,9 @@ class CommandDispatcher(
                 } else {
                     overlay.setMessage("Typing\u2026")
                     scope.launch {
-                        withContext(Dispatchers.Default) {
-                            val result = deviceController.setFocusedText(command.text)
-                            if (!result.successful) {
-                                withContext(Dispatchers.Main) {
-                                    overlay.setMessage(result.message)
-                                }
-                            }
+                        val result = deviceController.setFocusedText(command.text)
+                        if (!result.successful) {
+                            overlay.setMessage(result.message)
                         }
                     }
                 }
@@ -109,22 +105,16 @@ class CommandDispatcher(
                     overlay.showConfirmation("Tap the visible Send control?") {
                         val result = deviceController.tapControl("send")
                         if (!result.successful) {
-                            scope.launch {
-                                overlay.setMessage("I couldn't tap the send control. Could you clarify where it is, or tap it yourself?")
-                            }
+                            overlay.setMessage("I couldn't tap the send control. Could you clarify where it is, or tap it yourself?")
                         }
                         result
                     }
                 } else {
                     overlay.setMessage("Sending\u2026")
                     scope.launch {
-                        withContext(Dispatchers.Default) {
-                            val result = deviceController.tapControl("send")
-                            if (!result.successful) {
-                                withContext(Dispatchers.Main) {
-                                    overlay.setMessage("I couldn't tap the send control. Could you clarify where it is, or tap it yourself?")
-                                }
-                            }
+                        val result = deviceController.tapControl("send")
+                        if (!result.successful) {
+                            overlay.setMessage("I couldn't tap the send control. Could you clarify where it is, or tap it yourself?")
                         }
                     }
                 }
@@ -260,7 +250,7 @@ class CommandDispatcher(
     private fun executeAction(
         session: GeminiSession,
         action: GeminiAction,
-        runAction: () -> OperationResult,
+        runAction: suspend () -> OperationResult,
         delayMs: Long
     ) {
         val globalRequire = context.getSharedPreferences("mobby_prefs", Context.MODE_PRIVATE)
@@ -287,14 +277,10 @@ class CommandDispatcher(
                 onConfirm = {
                     val result = runAction()
                     if (result.successful) {
-                        scope.launch {
-                            delay(delayMs)
-                            executeGeminiNextStep(session)
-                        }
+                        delay(delayMs)
+                        executeGeminiNextStep(session)
                     } else {
-                        scope.launch {
-                            handleActionFailure(action, result.message)
-                        }
+                        handleActionFailure(action, result.message)
                     }
                     result
                 }
@@ -311,7 +297,7 @@ class CommandDispatcher(
                     else -> "Working\u2026"
                 }
                 overlay.setMessage(actionMessage)
-                val result = withContext(Dispatchers.Default) { runAction() }
+                val result = runAction()
                 if (result.successful) {
                     delay(delayMs)
                     executeGeminiNextStep(session)

@@ -10,8 +10,9 @@ import android.os.Looper
 import android.text.TextUtils
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * Performs device-level actions: tap a control, type text, scroll, and global navigation.
@@ -23,14 +24,14 @@ import java.util.concurrent.TimeUnit
 class DeviceController(private val service: AccessibilityService) {
 
     /** Taps a visible control whose label matches [wantedLabel]. */
-    fun tapControl(wantedLabel: String): OperationResult {
+    suspend fun tapControl(wantedLabel: String): OperationResult {
         if (TextUtils.isEmpty(wantedLabel)) {
             return OperationResult.failure("Tell me the label of the button or control to tap.")
         }
         return tapControlInternal(wantedLabel, attemptSelfCorrection = true)
     }
 
-    private fun tapControlInternal(wantedLabel: String, attemptSelfCorrection: Boolean): OperationResult {
+    private suspend fun tapControlInternal(wantedLabel: String, attemptSelfCorrection: Boolean): OperationResult {
         val root = service.rootInActiveWindow
             ?: return OperationResult.failure("I can't reach the current screen.")
         var target: AccessibilityNodeInfo? = null
@@ -94,11 +95,7 @@ class DeviceController(private val service: AccessibilityService) {
                 Log.d(TAG, "tapControl: scrolling down to bring \"$wantedLabel\" into view")
                 val scrollDownResult = scrollActiveWindow("down")
                 if (scrollDownResult.successful) {
-                    try {
-                        Thread.sleep(1000)
-                    } catch (e: InterruptedException) {
-                        Log.w(TAG, "sleep interrupted during self-correction", e)
-                    }
+                    delay(1000)
                     val retryResult = tapControlInternal(wantedLabel, attemptSelfCorrection = false)
                     if (retryResult.successful) {
                         return retryResult
@@ -109,11 +106,7 @@ class DeviceController(private val service: AccessibilityService) {
                 Log.d(TAG, "tapControl: scrolling up to bring \"$wantedLabel\" into view")
                 val scrollUpResult = scrollActiveWindow("up")
                 if (scrollUpResult.successful) {
-                    try {
-                        Thread.sleep(1000)
-                    } catch (e: InterruptedException) {
-                        Log.w(TAG, "sleep interrupted during self-correction", e)
-                    }
+                    delay(1000)
                     val retryResult = tapControlInternal(wantedLabel, attemptSelfCorrection = false)
                     if (retryResult.successful) {
                         return retryResult
@@ -130,7 +123,7 @@ class DeviceController(private val service: AccessibilityService) {
     }
 
     /** Sets text in the currently focused (or first editable) field. */
-    fun setFocusedText(value: String): OperationResult {
+    suspend fun setFocusedText(value: String): OperationResult {
         if (TextUtils.isEmpty(value)) return OperationResult.failure("The text was empty.")
         val root = service.rootInActiveWindow
             ?: return OperationResult.failure("I can't reach the current screen.")
@@ -159,7 +152,7 @@ class DeviceController(private val service: AccessibilityService) {
     }
 
     /** Scrolls the active window in the given [direction] ("up" or "down"). */
-    fun scrollActiveWindow(direction: String): OperationResult {
+    suspend fun scrollActiveWindow(direction: String): OperationResult {
         val root = service.rootInActiveWindow
             ?: return OperationResult.failure("I can't reach the current screen.")
         var scrollable: AccessibilityNodeInfo? = null
@@ -186,7 +179,7 @@ class DeviceController(private val service: AccessibilityService) {
     }
 
     /** Performs the system Back action. */
-    fun goBack(): OperationResult {
+    suspend fun goBack(): OperationResult {
         val success = service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
         Log.d(TAG, "goBack: ${if (success) "success" else "refused"}")
         return if (success) OperationResult.success("Went back.")
@@ -194,7 +187,7 @@ class DeviceController(private val service: AccessibilityService) {
     }
 
     /** Performs the system Home action. */
-    fun goHome(): OperationResult {
+    suspend fun goHome(): OperationResult {
         val success = service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
         Log.d(TAG, "goHome: ${if (success) "success" else "refused"}")
         return if (success) OperationResult.success("Opened Home.")
@@ -263,7 +256,7 @@ class DeviceController(private val service: AccessibilityService) {
         return null
     }
 
-    private fun tapGesture(x: Float, y: Float): Boolean {
+    private suspend fun tapGesture(x: Float, y: Float): Boolean = suspendCancellableCoroutine { continuation ->
         val path = Path().apply {
             moveTo(x, y)
         }
@@ -272,36 +265,25 @@ class DeviceController(private val service: AccessibilityService) {
             .addStroke(stroke)
             .build()
 
-        val latch = CountDownLatch(1)
-        var success = false
-
         val handler = Handler(Looper.getMainLooper())
         handler.post {
             try {
-                service.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+                val success = service.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
                     override fun onCompleted(gestureDescription: GestureDescription?) {
-                        success = true
-                        latch.countDown()
+                        if (continuation.isActive) continuation.resume(true)
                     }
                     override fun onCancelled(gestureDescription: GestureDescription?) {
-                        success = false
-                        latch.countDown()
+                        if (continuation.isActive) continuation.resume(false)
                     }
                 }, null)
+                if (!success) {
+                    if (continuation.isActive) continuation.resume(false)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error dispatching gesture", e)
-                success = false
-                latch.countDown()
+                if (continuation.isActive) continuation.resume(false)
             }
         }
-
-        try {
-            latch.await(3, TimeUnit.SECONDS)
-        } catch (e: InterruptedException) {
-            Log.e(TAG, "Gesture tap interrupted", e)
-        }
-
-        return success
     }
 
     companion object {

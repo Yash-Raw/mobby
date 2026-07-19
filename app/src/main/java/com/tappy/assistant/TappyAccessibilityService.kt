@@ -182,28 +182,28 @@ class TappyAccessibilityService : AccessibilityService(),
         internal var instance: TappyAccessibilityService? = null
             private set
 
-        fun describeScreen(): OperationResult =
+        suspend fun describeScreen(): OperationResult =
             withService { it.screenReader?.describeActiveWindow(false) }
 
-        fun guideCurrentScreen(): OperationResult =
+        suspend fun guideCurrentScreen(): OperationResult =
             withService { it.screenReader?.describeActiveWindow(true) }
 
-        fun listControls(): OperationResult =
+        suspend fun listControls(): OperationResult =
             withService { it.screenReader?.listActiveControls() }
 
-        fun tapVisibleControl(label: String): OperationResult =
+        suspend fun tapVisibleControl(label: String): OperationResult =
             withService { it.deviceController?.tapControl(label) }
 
-        fun typeIntoFocusedField(value: String): OperationResult =
+        suspend fun typeIntoFocusedField(value: String): OperationResult =
             withService { it.deviceController?.setFocusedText(value) }
 
-        fun scroll(direction: String): OperationResult =
+        suspend fun scroll(direction: String): OperationResult =
             withService { it.deviceController?.scrollActiveWindow(direction) }
 
-        fun goBack(): OperationResult =
+        suspend fun goBack(): OperationResult =
             withService { it.deviceController?.goBack() }
 
-        fun goHome(): OperationResult =
+        suspend fun goHome(): OperationResult =
             withService { it.deviceController?.goHome() }
 
         /** Opens the small accessibility overlay without replacing the app the user is working in. */
@@ -214,7 +214,7 @@ class TappyAccessibilityService : AccessibilityService(),
             return overlay.isShowing
         }
 
-        private fun withService(operation: (TappyAccessibilityService) -> OperationResult?): OperationResult {
+        private suspend fun withService(operation: suspend (TappyAccessibilityService) -> OperationResult?): OperationResult {
             val service = instance
                 ?: return OperationResult.failure("Turn on Mobby controls in Android Accessibility Settings first.")
             return operation(service)

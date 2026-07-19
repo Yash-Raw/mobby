@@ -44,7 +44,7 @@ class OverlayManager(
 
     class PendingConfirmation(
         val question: String,
-        val onConfirm: () -> OperationResult,
+        val onConfirm: suspend () -> OperationResult,
         val onCancel: (() -> Unit)?
     )
 
@@ -181,7 +181,7 @@ class OverlayManager(
     /** Shows a voice-based confirmation dialog. */
     fun showConfirmation(
         question: String,
-        onConfirm: () -> OperationResult
+        onConfirm: suspend () -> OperationResult
     ) {
         showConfirmation(question, onConfirm, null)
     }
@@ -189,7 +189,7 @@ class OverlayManager(
     /** Shows a voice-based confirmation dialog with custom cancel handling. */
     fun showConfirmation(
         question: String,
-        onConfirm: () -> OperationResult,
+        onConfirm: suspend () -> OperationResult,
         onCancel: (() -> Unit)?
     ) {
         speak(question, "mobby_confirmation")
@@ -215,7 +215,7 @@ class OverlayManager(
             pendingConfirmation = null
             setMessage("Working\u2026")
             scope.launch {
-                val result = withContext(Dispatchers.Default) { pending.onConfirm() }
+                val result = pending.onConfirm()
                 setMessage(result.message)
             }
             return true

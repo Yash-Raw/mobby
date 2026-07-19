@@ -3,11 +3,14 @@ package com.tappy.assistant
 import android.content.Context
 import android.content.SharedPreferences
 import io.mockk.every
+import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import io.mockk.coVerify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.resetMain
@@ -91,32 +94,32 @@ class CommandDispatcherTest {
 
     @Test
     fun `BACK calls goBack`() {
-        every { deviceController.goBack() } returns OperationResult.success("Went back.")
+        coEvery { deviceController.goBack() } returns OperationResult.success("Went back.")
 
         dispatcher.dispatch(command(CommandParser.Type.BACK))
 
-        verify { deviceController.goBack() }
+        coVerify { deviceController.goBack() }
         verify { overlay.setMessage("Went back.") }
     }
 
     @Test
     fun `HOME calls goHome`() {
-        every { deviceController.goHome() } returns OperationResult.success("Opened Home.")
+        coEvery { deviceController.goHome() } returns OperationResult.success("Opened Home.")
 
         dispatcher.dispatch(command(CommandParser.Type.HOME))
 
-        verify { deviceController.goHome() }
+        coVerify { deviceController.goHome() }
         verify { overlay.setMessage("Opened Home.") }
     }
 
     @Test
     fun `SCROLL calls scrollActiveWindow with direction`() {
-        every { deviceController.scrollActiveWindow("down") } returns
+        coEvery { deviceController.scrollActiveWindow("down") } returns
                 OperationResult.success("Scrolled down.")
 
         dispatcher.dispatch(CommandParser.AgentCommand(CommandParser.Type.SCROLL, "down", ""))
 
-        verify { deviceController.scrollActiveWindow("down") }
+        coVerify { deviceController.scrollActiveWindow("down") }
         verify { overlay.setMessage("Scrolled down.") }
     }
 
@@ -232,13 +235,13 @@ class CommandDispatcherTest {
 
     @Test
     fun `TAP failing with confirmation shows clarification message`() {
-        every { deviceController.tapControl("Search") } returns OperationResult.failure("Failure")
+        coEvery { deviceController.tapControl("Search") } returns OperationResult.failure("Failure")
         
         dispatcher.dispatch(CommandParser.AgentCommand(CommandParser.Type.TAP, "Search", ""))
         
-        val confirmCallbackSlot = slot<() -> OperationResult>()
+        val confirmCallbackSlot = slot<suspend () -> OperationResult>()
         verify { overlay.showConfirmation(any(), capture(confirmCallbackSlot)) }
-        confirmCallbackSlot.captured.invoke()
+        runBlocking { confirmCallbackSlot.captured.invoke() }
         
         verify(timeout = 2000) {
             overlay.setMessage("I couldn't tap \u201CSearch\u201D. Could you clarify where it is, or tap it yourself?")
@@ -248,7 +251,7 @@ class CommandDispatcherTest {
     @Test
     fun `TAP failing without confirmation shows clarification message`() {
         every { sharedPrefs.getBoolean("require_confirmation", any()) } returns false
-        every { deviceController.tapControl("Search") } returns OperationResult.failure("Failure")
+        coEvery { deviceController.tapControl("Search") } returns OperationResult.failure("Failure")
         
         dispatcher.dispatch(CommandParser.AgentCommand(CommandParser.Type.TAP, "Search", ""))
         

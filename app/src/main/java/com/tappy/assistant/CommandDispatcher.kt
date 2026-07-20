@@ -71,7 +71,7 @@ class CommandDispatcher(
                         val result = deviceController.tapControl(command.target)
                         if (!result.successful) {
                             overlay.setMessage("I couldn't tap \u201C${command.target}\u201D. Could you clarify where it is, or tap it yourself?")
-            f          }
+                        }
                         result
                     }
                 } else {

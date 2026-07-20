@@ -101,21 +101,40 @@ class ScreenReader(private val provider: AccessibilityNodeProvider) {
             val child = node.getChild(index) ?: continue
             val childXml = buildLayoutXml(child, depth + 1)
             NodeCompat.recycle(child)
-            childrenXml.append(childXml)
+            if (childXml.isNotEmpty()) {
+                childrenXml.append(childXml)
+            }
         }
 
         val childContent = childrenXml.toString().trim()
+        val labelAttr = if (label.isNotEmpty()) " label=\"$label\"" else ""
 
         return when {
             node.isEditable -> {
                 val focused = if (node.isFocused) " focused=\"true\"" else ""
-                "<input label=\"$label\"$focused />\n"
+                "<input$labelAttr$focused />\n"
             }
             node.isClickable -> {
                 if (childContent.isNotEmpty()) {
-                    "<button label=\"$label\">\n$childContent\n</button>\n"
+                    // Check if child content is a single text element: <text>Some Text</text>
+                    val textTagRegex = Regex("^<text>(.+)</text>$", RegexOption.DOT_MATCHES_ALL)
+                    val match = textTagRegex.matchEntire(childContent)
+                    if (match != null) {
+                        val extractedText = match.groupValues[1]
+                        val finalLabel = if (label.isNotEmpty()) label else extractedText
+                        "<button label=\"$finalLabel\" />\n"
+                    } else {
+                        // Check if child content is redundant text matching the label
+                        val normalizedChild = childContent.replace(Regex("\\s+"), "")
+                        val redundantPattern = "<text>${label.replace(Regex("\\s+"), "")}</text>"
+                        if (label.isNotEmpty() && normalizedChild == redundantPattern) {
+                            "<button$labelAttr />\n"
+                        } else {
+                            "<button$labelAttr>\n$childContent\n</button>\n"
+                        }
+                    }
                 } else {
-                    "<button label=\"$label\" />\n"
+                    "<button$labelAttr />\n"
                 }
             }
             node.isScrollable -> {
@@ -126,7 +145,8 @@ class ScreenReader(private val provider: AccessibilityNodeProvider) {
                 }
             }
             label.isNotEmpty() -> {
-                "<text>$label</text>\n"
+                val displayText = if (label.length > 150) label.take(150) + "..." else label
+                "<text>$displayText</text>\n"
             }
             else -> {
                 if (childContent.isNotEmpty()) "$childContent\n" else ""
@@ -163,7 +183,7 @@ class ScreenReader(private val provider: AccessibilityNodeProvider) {
 
     companion object {
         private const val TAG = "MobbyScreen"
-        internal const val MAX_SCREEN_ITEMS = 80
+        internal const val MAX_SCREEN_ITEMS = 300
 
         /** Extracts the best human-readable label from an accessibility node. */
         fun nodeLabel(node: AccessibilityNodeInfo): String {

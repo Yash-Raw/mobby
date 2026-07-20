@@ -125,7 +125,8 @@ class GeminiBrain(private val context: Context) {
                 }
                 session.addTurn(modelTurn)
 
-                val actionJson = JSONObject(textCandidate.trim())
+                val cleanedJsonString = extractJsonString(textCandidate)
+                val actionJson = JSONObject(cleanedJsonString)
                 val action = actionJson.optString("action", "SAY")
                 val thought = actionJson.optString("thought", "")
                 val target = actionJson.optString("target", "")
@@ -142,6 +143,22 @@ class GeminiBrain(private val context: Context) {
             Log.e(TAG, "Exception calling Gemini API", e)
             return@withContext GeminiAction.say("Error connecting to Gemini API: ${e.localizedMessage}")
         }
+    }
+
+    private fun extractJsonString(input: String): String {
+        var cleaned = input.trim()
+        if (cleaned.startsWith("```")) {
+            val firstLineEnd = cleaned.indexOf('\n')
+            cleaned = if (firstLineEnd != -1) {
+                cleaned.substring(firstLineEnd).trim()
+            } else {
+                cleaned.substring(3).trim()
+            }
+        }
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.substring(0, cleaned.length - 3).trim()
+        }
+        return cleaned
     }
 }
 

@@ -19,3 +19,11 @@
 # Keep CommandParser types used in when-expressions and companion factories.
 -keep class com.tappy.assistant.CommandParser$Type { *; }
 -keep class com.tappy.assistant.CommandParser$AgentCommand { *; }
+
+# Keep WorkManager worker and scheduled automation task model for reflection & JSON.
+-keep class com.tappy.assistant.MobbyWorker { *; }
+-keep class com.tappy.assistant.ScheduledTask { *; }
+
+# Keep Gemini AI brain models for JSON parsing.
+-keep class com.tappy.assistant.GeminiAction { *; }
+-keep class com.tappy.assistant.GeminiSession { *; }

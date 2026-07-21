@@ -277,10 +277,11 @@ class CommandDispatcher(
                 onConfirm = {
                     val result = runAction()
                     if (result.successful) {
+                        session.consecutiveFailures = 0
                         delay(delayMs)
                         executeGeminiNextStep(session)
                     } else {
-                        handleActionFailure(action, result.message)
+                        handleActionFailure(session, action, result.message)
                     }
                     result
                 }
@@ -299,24 +300,30 @@ class CommandDispatcher(
                 overlay.setMessage(actionMessage)
                 val result = runAction()
                 if (result.successful) {
+                    session.consecutiveFailures = 0
                     delay(delayMs)
                     executeGeminiNextStep(session)
                 } else {
-                    handleActionFailure(action, result.message)
+                    handleActionFailure(session, action, result.message)
                 }
             }
         }
     }
 
-    private fun handleActionFailure(action: GeminiAction, errorMessage: String) {
-        currentGeminiSession = null
-        val message = when (action.action) {
-            "TAP" -> "I couldn't tap \u201C${action.target}\u201D. Could you clarify where it is, or tap it yourself?"
-            "TYPE" -> "I couldn't type that text. Could you help or tell me what to do next?"
-            "SCROLL" -> "I couldn't scroll the screen. Could you help or tell me what to do next?"
-            else -> "I couldn't perform that step. Could you help or tell me what to do next?"
+    internal fun handleActionFailure(session: GeminiSession, action: GeminiAction, errorMessage: String) {
+        session.consecutiveFailures++
+        if (session.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            currentGeminiSession = null
+            val message = when (action.action) {
+                "TAP" -> "I couldn't tap \u201C${action.target}\u201D. Could you clarify where it is, or tap it yourself?"
+                "TYPE" -> "I couldn't type that text. Could you help or tell me what to do next?"
+                "SCROLL" -> "I couldn't scroll the screen. Could you help or tell me what to do next?"
+                else -> "I couldn't perform that step. Could you help or tell me what to do next?"
+            }
+            overlay.setMessage(message)
+        } else {
+            logFailureAndResume(session, action, errorMessage)
         }
-        overlay.setMessage(message)
     }
 
     private fun isCriticalAction(action: GeminiAction): Boolean {
@@ -329,12 +336,15 @@ class CommandDispatcher(
         return false
     }
 
-    private fun logFailureAndResume(session: GeminiSession, errorMessage: String) {
+    private fun logFailureAndResume(session: GeminiSession, action: GeminiAction, errorMessage: String) {
+        val targetInfo = if (action.target.isNotEmpty()) " target \"${action.target}\"" else ""
+        val failureDetails = "Execution Failed for action ${action.action}$targetInfo: $errorMessage"
+        Log.w(TAG, "logFailureAndResume: $failureDetails (consecutiveFailures=${session.consecutiveFailures})")
         session.addTurn(JSONObject().apply {
             put("role", "user")
             put("parts", JSONArray().apply {
                 put(JSONObject().apply {
-                    put("text", "Execution Failed: $errorMessage")
+                    put("text", failureDetails)
                 })
             })
         })
@@ -413,5 +423,6 @@ class CommandDispatcher(
 
     companion object {
         private const val TAG = "MobbyDispatch"
+        private const val MAX_CONSECUTIVE_FAILURES = 3
     }
 }

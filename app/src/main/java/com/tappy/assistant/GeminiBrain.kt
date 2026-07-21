@@ -164,6 +164,7 @@ class GeminiBrain(private val context: Context) {
 
 class GeminiSession(val userRequest: String) {
     val history = mutableListOf<JSONObject>()
+    var consecutiveFailures: Int = 0
 
     fun addTurn(turn: JSONObject) {
         history.add(turn)

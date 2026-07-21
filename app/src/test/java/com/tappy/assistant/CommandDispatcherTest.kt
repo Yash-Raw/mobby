@@ -260,6 +260,37 @@ class CommandDispatcherTest {
         }
     }
 
+    @Test
+    fun `Gemini action failure under limit appends error to session history`() {
+        val session = GeminiSession("Tap submit")
+        val action = GeminiAction("Try tap", "TAP", "Submit", "", false)
+        
+        every { screenReader.readScreen() } returns mockk(relaxed = true) {
+            every { available } returns true
+            every { appName } returns "TestApp"
+            every { layoutXml } returns "<button label=\"Submit\" />"
+        }
+
+        dispatcher.handleActionFailure(session, action, "Element not clickable")
+
+        assertEquals(1, session.consecutiveFailures)
+        assertEquals(1, session.history.size)
+    }
+
+    @Test
+    fun `Gemini action reaching max consecutive failures terminates session`() {
+        val session = GeminiSession("Tap submit")
+        session.consecutiveFailures = 2
+        val action = GeminiAction("Try tap", "TAP", "Submit", "", false)
+
+        dispatcher.handleActionFailure(session, action, "Element not clickable")
+
+        assertEquals(3, session.consecutiveFailures)
+        verify {
+            overlay.setMessage("I couldn't tap \u201CSubmit\u201D. Could you clarify where it is, or tap it yourself?")
+        }
+    }
+
     // ── Helper ──────────────────────────────────────────────────────────
 
     private fun command(type: CommandParser.Type) =

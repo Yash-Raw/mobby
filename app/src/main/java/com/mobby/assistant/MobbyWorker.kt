@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -35,10 +35,10 @@ class MobbyWorker(
 
         Log.i(TAG, "doWork: triggering scheduled automation: \"$prompt\"")
 
-        val serviceInstance = TappyAccessibilityService.instance
+        val serviceInstance = MobbyAccessibilityService.instance
         if (serviceInstance != null) {
             withContext(Dispatchers.Main) {
-                TappyAccessibilityService.openQuickPanel()
+                MobbyAccessibilityService.openQuickPanel()
                 // Wait briefly for the panel overlay to mount before dispatching
                 kotlinx.coroutines.delay(800)
                 serviceInstance.commandDispatcher?.startGeminiSession(prompt)

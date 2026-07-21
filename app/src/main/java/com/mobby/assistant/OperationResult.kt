@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 /**
  * The result of any device operation — screen reading, tap, type, scroll, navigate, or reply.

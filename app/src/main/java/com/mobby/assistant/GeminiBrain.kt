@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.content.Context
 import android.util.Log

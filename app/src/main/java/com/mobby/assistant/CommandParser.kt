@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.util.Log
 import java.util.Locale

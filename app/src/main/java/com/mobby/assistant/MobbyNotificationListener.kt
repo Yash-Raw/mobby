@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.app.Notification
 import android.app.PendingIntent
@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Holds active notifications in memory only. It never sends notification content to a server.
  * A reply is delivered exclusively through the messaging app's own RemoteInput action.
  */
-class TappyNotificationListener : NotificationListenerService() {
+class MobbyNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         instance = this
@@ -70,7 +70,7 @@ class TappyNotificationListener : NotificationListenerService() {
         private val ACTIVE_MESSAGES = ConcurrentHashMap<String, MessageSnapshot>()
 
         @Volatile
-        private var instance: TappyNotificationListener? = null
+        private var instance: MobbyNotificationListener? = null
 
         private fun cache(sbn: StatusBarNotification) {
             val notification = sbn.notification ?: return

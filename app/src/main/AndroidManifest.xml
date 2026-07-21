@@ -24,7 +24,7 @@
         <!-- Lets Mobby inspect active message notifications and use a notification's
              own Direct Reply action only after the user has enabled this in Settings. -->
         <service
-            android:name=".TappyNotificationListener"
+            android:name=".MobbyNotificationListener"
             android:exported="true"
             android:label="Mobby message access"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
@@ -36,7 +36,7 @@
         <!-- Android displays this disclosure in Accessibility settings. The system activates
              the service only after the device owner enables it there. -->
         <service
-            android:name=".TappyAccessibilityService"
+            android:name=".MobbyAccessibilityService"
             android:exported="true"
             android:label="Mobby accessibility controls"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">

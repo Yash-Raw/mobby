@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
@@ -22,7 +22,7 @@ import android.view.accessibility.AccessibilityNodeInfo
  * - [VoiceController] — handles the SpeechRecognizer lifecycle.
  * - [CommandDispatcher] — routes parsed commands to the correct handler.
  */
-class TappyAccessibilityService : AccessibilityService(),
+class MobbyAccessibilityService : AccessibilityService(),
     OverlayManager.Callbacks,
     VoiceController.Listener {
 
@@ -66,9 +66,9 @@ class TappyAccessibilityService : AccessibilityService(),
 
         screenReader = ScreenReader(object : ScreenReader.AccessibilityNodeProvider {
             override val rootInActiveWindow: AccessibilityNodeInfo?
-                get() = this@TappyAccessibilityService.rootInActiveWindow
+                get() = this@MobbyAccessibilityService.rootInActiveWindow
             override val packageManager: PackageManager
-                get() = this@TappyAccessibilityService.packageManager
+                get() = this@MobbyAccessibilityService.packageManager
         })
 
         deviceController = DeviceController(this)
@@ -179,7 +179,7 @@ class TappyAccessibilityService : AccessibilityService(),
         private const val TAG = "MobbyService"
 
         @Volatile
-        internal var instance: TappyAccessibilityService? = null
+        internal var instance: MobbyAccessibilityService? = null
             private set
 
         suspend fun describeScreen(): OperationResult =
@@ -214,7 +214,7 @@ class TappyAccessibilityService : AccessibilityService(),
             return overlay.isShowing
         }
 
-        private suspend fun withService(operation: suspend (TappyAccessibilityService) -> OperationResult?): OperationResult {
+        private suspend fun withService(operation: suspend (MobbyAccessibilityService) -> OperationResult?): OperationResult {
             val service = instance
                 ?: return OperationResult.failure("Turn on Mobby controls in Android Accessibility Settings first.")
             return operation(service)

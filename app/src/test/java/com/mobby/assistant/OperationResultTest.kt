@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

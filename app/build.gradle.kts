@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.tappy.assistant"
+    namespace = "com.mobby.assistant"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.tappy.assistant"
+        applicationId = "com.mobby.assistant"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

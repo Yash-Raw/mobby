@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.content.Context
 import android.util.Log
@@ -14,7 +14,7 @@ import org.json.JSONObject
 
 /**
  * Routes parsed voice commands to the correct handler (ScreenReader, DeviceController,
- * or TappyNotificationListener) and delivers results back to the overlay.
+ * or MobbyNotificationListener) and delivers results back to the overlay.
  *
  * This class contains no Android framework references beyond logging — it operates
  * entirely through its constructor dependencies, making it straightforward to unit-test.
@@ -120,7 +120,7 @@ class CommandDispatcher(
                 }
 
             CommandParser.Type.CHECK_MESSAGES_FROM -> {
-                val message = TappyNotificationListener.findLatestMessageFrom(command.target)
+                val message = MobbyNotificationListener.findLatestMessageFrom(command.target)
                 overlay.setMessage(
                     if (message == null) "No active message notification from ${command.target}."
                     else "Latest message from ${message.sender}: ${safeMessageText(message)}"
@@ -361,7 +361,7 @@ class CommandDispatcher(
     }
 
     private fun replyFromNotification(sender: String, reply: String) {
-        val message = TappyNotificationListener.findLatestMessageFrom(sender)
+        val message = MobbyNotificationListener.findLatestMessageFrom(sender)
         if (message == null) {
             Log.d(TAG, "replyFromNotification: no notification found for \"$sender\"")
             overlay.setMessage(
@@ -372,7 +372,7 @@ class CommandDispatcher(
         }
         if (needsConfirmation(isSend = true)) {
             overlay.showConfirmation("Reply to ${message.sender}?\n\u201C$reply\u201D") {
-                val result = TappyNotificationListener.reply(message.key, reply)
+                val result = MobbyNotificationListener.reply(message.key, reply)
                 if (result.sent) {
                     Log.d(TAG, "replyFromNotification: reply sent to ${message.sender}")
                     OperationResult.success("Reply sent to ${message.sender}.")
@@ -385,7 +385,7 @@ class CommandDispatcher(
             overlay.setMessage("Sending reply to ${message.sender}\u2026")
             scope.launch {
                 withContext(Dispatchers.Default) {
-                    val result = TappyNotificationListener.reply(message.key, reply)
+                    val result = MobbyNotificationListener.reply(message.key, reply)
                     withContext(Dispatchers.Main) {
                         if (result.sent) {
                             Log.d(TAG, "replyFromNotification: reply sent to ${message.sender}")
@@ -400,7 +400,7 @@ class CommandDispatcher(
         }
     }
 
-    private fun safeMessageText(message: TappyNotificationListener.MessageSnapshot): String =
+    private fun safeMessageText(message: MobbyNotificationListener.MessageSnapshot): String =
         if (message.text.isEmpty()) "the messaging app hid the message content" else message.text
 
     private fun needsConfirmation(target: String = "", isTap: Boolean = false, isSend: Boolean = false): Boolean {

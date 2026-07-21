@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import kotlin.math.ln
 import kotlin.math.sqrt

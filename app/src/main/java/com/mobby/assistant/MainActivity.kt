@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.Manifest
 import android.content.ComponentName
@@ -155,7 +155,7 @@ class MainActivity : ComponentActivity() {
             openAccessibilitySettings()
             return
         }
-        if (!TappyAccessibilityService.openQuickPanel()) {
+        if (!MobbyAccessibilityService.openQuickPanel()) {
             toast("Android is still connecting Mobby. Please try again in a moment.")
             return
         }
@@ -182,12 +182,12 @@ class MainActivity : ComponentActivity() {
 
     private fun isNotificationAccessEnabled(): Boolean {
         val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-        return isComponentEnabled(enabled, ComponentName(this, TappyNotificationListener::class.java))
+        return isComponentEnabled(enabled, ComponentName(this, MobbyNotificationListener::class.java))
     }
 
     private fun isAccessibilityAccessEnabled(): Boolean {
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-        return isComponentEnabled(enabled, ComponentName(this, TappyAccessibilityService::class.java))
+        return isComponentEnabled(enabled, ComponentName(this, MobbyAccessibilityService::class.java))
     }
 
     private fun isComponentEnabled(setting: String?, target: ComponentName): Boolean {

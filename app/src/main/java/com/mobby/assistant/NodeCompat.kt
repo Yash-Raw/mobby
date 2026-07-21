@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo

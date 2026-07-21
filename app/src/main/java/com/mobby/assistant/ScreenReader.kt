@@ -1,4 +1,4 @@
-package com.tappy.assistant
+package com.mobby.assistant
 
 import android.content.pm.PackageManager
 import android.os.Build
@@ -195,9 +195,74 @@ class ScreenReader(private val provider: AccessibilityNodeProvider) {
 
         /** Checks whether a visible label and a requested label refer to the same control. */
         fun labelsMatch(visible: String, requested: String): Boolean {
-            val actual = visible.lowercase(Locale.ROOT)
-            val wanted = requested.trim().lowercase(Locale.ROOT)
-            return actual.isNotEmpty() && (actual == wanted || actual.contains(wanted) || wanted.contains(actual))
+            val actual = visible.lowercase(Locale.ROOT).trim()
+            val wanted = requested.lowercase(Locale.ROOT).trim()
+            if (actual.isEmpty() || wanted.isEmpty()) return false
+
+            // 1. Direct exact or substring match
+            if (actual == wanted || actual.contains(wanted) || wanted.contains(actual)) {
+                return true
+            }
+
+            // 2. Full string Levenshtein edit distance check
+            if (isFuzzyMatch(actual, wanted)) {
+                return true
+            }
+
+            // 3. Token-level fuzzy match (e.g. "search button" vs "serch")
+            val actualTokens = actual.split(Regex("\\s+")).filter { it.length > 2 }
+            val wantedTokens = wanted.split(Regex("\\s+")).filter { it.length > 2 }
+
+            for (wToken in wantedTokens) {
+                for (aToken in actualTokens) {
+                    if (aToken == wToken || aToken.contains(wToken) || wToken.contains(aToken) || isFuzzyMatch(aToken, wToken)) {
+                        return true
+                    }
+                }
+            }
+
+            return false
+        }
+
+        private fun isFuzzyMatch(s1: String, s2: String): Boolean {
+            val maxLen = maxOf(s1.length, s2.length)
+            if (maxLen == 0) return true
+
+            val distance = levenshteinDistance(s1, s2)
+            return when {
+                maxLen <= 4 -> distance <= 1
+                maxLen <= 9 -> distance <= 2
+                else -> (1.0 - distance.toDouble() / maxLen.toDouble()) >= 0.70
+            }
+        }
+
+        /**
+         * Calculates Levenshtein edit distance between [s1] and [s2] using
+         * space-optimized O(N) 2-row dynamic programming.
+         */
+        fun levenshteinDistance(s1: String, s2: String): Int {
+            if (s1 == s2) return 0
+            if (s1.isEmpty()) return s2.length
+            if (s2.isEmpty()) return s1.length
+
+            var v0 = IntArray(s2.length + 1) { it }
+            var v1 = IntArray(s2.length + 1)
+
+            for (i in s1.indices) {
+                v1[0] = i + 1
+                for (j in s2.indices) {
+                    val cost = if (s1[i] == s2[j]) 0 else 1
+                    v1[j + 1] = minOf(
+                        v1[j] + 1,        // Insertion
+                        v0[j + 1] + 1,    // Deletion
+                        v0[j] + cost       // Substitution
+                    )
+                }
+                val swap = v0
+                v0 = v1
+                v1 = swap
+            }
+            return v0[s2.length]
         }
 
         /** Joins a list of strings, capped at [max] items. */

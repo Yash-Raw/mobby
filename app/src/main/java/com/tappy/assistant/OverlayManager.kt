@@ -39,6 +39,7 @@ class OverlayManager(
     private var isTtsReady = false
     private var isQuickPanelActive = false
     private var quickPanel: View? = null
+    private var confirmationCard: View? = null
 
     val isShowing: Boolean get() = isQuickPanelActive
 
@@ -158,6 +159,7 @@ class OverlayManager(
     fun remove() {
         isQuickPanelActive = false
         pendingConfirmation = null
+        dismissConfirmationCard()
         quickPanel?.let {
             try {
                 windowManager.removeView(it)
@@ -194,6 +196,114 @@ class OverlayManager(
     ) {
         speak(question, "mobby_confirmation")
         pendingConfirmation = PendingConfirmation(question, onConfirm, onCancel)
+        showConfirmationCard(question)
+    }
+
+    private fun showConfirmationCard(question: String) {
+        dismissConfirmationCard()
+
+        val container = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(14))
+
+            val backgroundDrawable = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.argb(245, 255, 255, 255))
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(2), Color.rgb(46, 107, 255))
+            }
+            background = backgroundDrawable
+            elevation = dp(12).toFloat()
+        }
+
+        val titleText = TextView(context).apply {
+            text = question
+            textSize = 15f
+            setTextColor(Color.rgb(20, 30, 55))
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, dp(12))
+        }
+        container.addView(titleText)
+
+        val buttonBar = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
+        val cancelBtn = Button(context).apply {
+            isAllCaps = false
+            text = "Cancel"
+            textSize = 13f
+            setTextColor(Color.rgb(100, 110, 120))
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setOnClickListener {
+                val pending = pendingConfirmation
+                pendingConfirmation = null
+                dismissConfirmationCard()
+                setMessage("Action cancelled.")
+                pending?.onCancel?.invoke()
+            }
+        }
+
+        val confirmBtn = Button(context).apply {
+            isAllCaps = false
+            text = "Confirm"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            val btnBg = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.rgb(46, 107, 255))
+                cornerRadius = dp(8).toFloat()
+            }
+            background = btnBg
+            setPadding(dp(16), dp(6), dp(16), dp(6))
+            setOnClickListener {
+                val pending = pendingConfirmation
+                pendingConfirmation = null
+                dismissConfirmationCard()
+                if (pending != null) {
+                    setMessage("Working\u2026")
+                    scope.launch {
+                        val result = pending.onConfirm()
+                        setMessage(result.message)
+                    }
+                }
+            }
+        }
+
+        buttonBar.addView(cancelBtn)
+        buttonBar.addView(View(context), android.widget.LinearLayout.LayoutParams(dp(8), 1))
+        buttonBar.addView(confirmBtn)
+        container.addView(buttonBar)
+
+        val dm = context.resources.displayMetrics
+        val params = WindowManager.LayoutParams(
+            (dm.widthPixels * 0.88).toInt(),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = dp(72)
+        }
+
+        try {
+            windowManager.addView(container, params)
+            confirmationCard = container
+            Log.d(TAG, "showConfirmationCard: visual confirmation card added")
+        } catch (e: WindowManager.BadTokenException) {
+            Log.w(TAG, "showConfirmationCard: BadTokenException", e)
+            confirmationCard = null
+        }
+    }
+
+    private fun dismissConfirmationCard() {
+        confirmationCard?.let { card ->
+            try {
+                windowManager.removeView(card)
+            } catch (_: IllegalArgumentException) {}
+        }
+        confirmationCard = null
     }
 
     /**
@@ -213,6 +323,7 @@ class OverlayManager(
 
         if (isConfirm) {
             pendingConfirmation = null
+            dismissConfirmationCard()
             setMessage("Working\u2026")
             scope.launch {
                 val result = pending.onConfirm()
@@ -221,6 +332,7 @@ class OverlayManager(
             return true
         } else if (isCancel) {
             pendingConfirmation = null
+            dismissConfirmationCard()
             setMessage("Action cancelled.")
             pending.onCancel?.invoke()
             return true
@@ -239,6 +351,7 @@ class OverlayManager(
     fun destroy() {
         scope.cancel()
         remove()
+        dismissConfirmationCard()
         tts?.stop()
         tts?.shutdown()
         Log.d(TAG, "destroy: overlay destroyed")

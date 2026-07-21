@@ -1,431 +1,156 @@
 package com.tappy.assistant
 
 import android.Manifest
-import android.app.Activity
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.graphics.Typeface
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
-import android.text.InputType
-import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
-/** Setup screen for Mobby's opt-in, cross-app accessibility controls. */
-class MainActivity : Activity() {
+// ── Color Palette ────────────────────────────────────────────────────────
+private val MobbyNavy = Color(0xFF141E37)
+private val MobbyBlue = Color(0xFF2E6BFF)
+private val MobbyBg = Color(0xFFF4F6F9)
+private val MobbyMuted = Color(0xFF646E78)
+private val MobbySuccess = Color(0xFF2E7D32)
+private val MobbyError = Color(0xFFD32F2F)
 
-    private lateinit var microphoneStatus: TextView
-    private lateinit var notificationStatus: TextView
-    private lateinit var accessibilityStatus: TextView
+/** Setup screen for Mobby's opt-in, cross-app accessibility controls, built with Jetpack Compose. */
+class MainActivity : ComponentActivity() {
+
+    private var micEnabledState = mutableStateOf(false)
+    private var accessibilityEnabledState = mutableStateOf(false)
+    private var notificationEnabledState = mutableStateOf(false)
+    private var geminiApiKeyState = mutableStateOf("")
+    private var requireConfirmationState = mutableStateOf(true)
+    private var scheduledTasksState = mutableStateOf<List<ScheduledTask>>(emptyList())
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        updatePermissionStates()
+        if (isGranted) {
+            Log.i(TAG, "requestPermissionLauncher: microphone granted")
+            toast("Microphone enabled. Tap Start Mobby Voice Assistant when ready.")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(createContent())
-        Log.i(TAG, "onCreate: setup screen created")
+        Log.i(TAG, "onCreate: Jetpack Compose setup screen created")
+        loadPreferences()
+
+        setContent {
+            MobbyTheme {
+                MobbySetupScreen(
+                    micEnabled = micEnabledState.value,
+                    accessibilityEnabled = accessibilityEnabledState.value,
+                    notificationEnabled = notificationEnabledState.value,
+                    geminiApiKey = geminiApiKeyState.value,
+                    requireConfirmation = requireConfirmationState.value,
+                    scheduledTasks = scheduledTasksState.value,
+                    onAllowMic = { requestMicrophone() },
+                    onOpenAccessibility = { openAccessibilitySettings() },
+                    onOpenNotification = { openNotificationSettings() },
+                    onSaveGeminiKey = { key ->
+                        getSharedPreferences("mobby_prefs", MODE_PRIVATE)
+                            .edit().putString("gemini_api_key", key).apply()
+                        geminiApiKeyState.value = key
+                        toast(if (key.isEmpty()) "API Key cleared" else "API Key saved")
+                    },
+                    onToggleConfirmation = {
+                        val newVal = !requireConfirmationState.value
+                        getSharedPreferences("mobby_prefs", MODE_PRIVATE)
+                            .edit().putBoolean("require_confirmation", newVal).apply()
+                        requireConfirmationState.value = newVal
+                        toast(if (newVal) "Confirmation required for all actions" else "Confirmation disabled for non-critical actions")
+                    },
+                    onAddTask = { task ->
+                        TaskScheduler.addTask(this, task)
+                        refreshTasks()
+                        toast("Task scheduled successfully")
+                    },
+                    onDeleteTask = { taskId ->
+                        TaskScheduler.cancelTask(this, taskId)
+                        refreshTasks()
+                        toast("Task cancelled")
+                    },
+                    onStartAssistant = { openDeviceControls() }
+                )
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
         updatePermissionStates()
+        refreshTasks()
     }
 
-    private fun createContent(): View {
-        val scroll = ScrollView(this).apply { isFillViewport = true }
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(28), dp(24), dp(32))
-            setBackgroundColor(getColor(R.color.mobby_bg))
-        }
-        scroll.addView(page)
-
-        page.addView(text("Mobby", 36f, getColor(R.color.mobby_navy)).apply {
-            setTypeface(null, 1)
-        })
-
-        page.addView(text(
-            "Your voice-controlled guide for any app on your phone.",
-            17f, getColor(R.color.mobby_muted)
-        ).apply {
-            setPadding(0, dp(6), 0, dp(18))
-        })
-
-        page.addView(
-            text(
-                "You decide what Mobby can access. It reads screen text only when you ask, " +
-                        "keeps it on this device, and asks for confirmation before it taps, types, or sends anything.",
-                14f, getColor(R.color.mobby_navy)
-            ).apply {
-                setPadding(dp(16), dp(14), dp(16), dp(14))
-                setBackgroundColor(Color.WHITE)
-            },
-            fullWidth()
-        )
-
-        addSpacing(page, 16)
-
-        microphoneStatus = addPermissionCard(
-            page,
-            "1. Microphone",
-            "Lets Mobby hear a command when you choose Speak. Mobby does not use an always-on microphone.",
-            "Allow microphone"
-        ) {
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                toast("Microphone permission is already enabled.")
-            } else {
-                requestMicrophone()
-            }
-        }
-
-        accessibilityStatus = addPermissionCard(
-            page,
-            "2. Device controls",
-            "Android's Accessibility service lets Mobby read visible text and controls, then perform the action you explicitly confirm. Android requires you to switch this on in Settings.",
-            "Open Accessibility"
-        ) { openAccessibilitySettings() }
-
-        notificationStatus = addPermissionCard(
-            page,
-            "3. Message access (optional)",
-            "Lets Mobby check active notifications and send a reply through a messaging app's own Direct Reply action. This works across apps that support Android Direct Reply.",
-            "Open message access"
-        ) { openNotificationSettings() }
-
-        addGeminiKeyCard(page)
-
-        addConfirmationSettingsCard(page)
-
-
-        addInstructionCard(
-            page,
-            "⚡ Quick Shortcut (Volume Keys)",
-            "You can quickly summon or stop Mobby from any screen by pressing and holding both Volume keys for 3 seconds.\n\nTo enable this, go to Settings ➔ Volume key shortcut ➔ select Mobby.",
-            "Configure Shortcut"
-        ) { openAccessibilitySettings() }
-
-        addScheduledAutomationsCard(page)
-
-        addSpacing(page, 4)
-
-        page.addView(Button(this).apply {
-            isAllCaps = false
-            text = "Start Mobby Voice Assistant"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(getColor(R.color.mobby_blue))
-            setOnClickListener { openDeviceControls() }
-        }, fullWidth())
-
-        page.addView(text(
-            "Examples: \u201CWhat\u2019s on screen?\u201D, \u201CGuide me\u201D, \u201CTap Search\u201D, " +
-                    "\u201CType hello\u201D, \u201CScroll down\u201D, \u201CReply that I\u2019m running late\u201D, " +
-                    "or \u201CReply to Maya that I\u2019ll call later.\u201D",
-            14f, getColor(R.color.mobby_muted)
-        ).apply {
-            setPadding(0, dp(12), 0, 0)
-        })
-
-        return scroll
+    private fun loadPreferences() {
+        val prefs = getSharedPreferences("mobby_prefs", MODE_PRIVATE)
+        geminiApiKeyState.value = prefs.getString("gemini_api_key", "") ?: ""
+        requireConfirmationState.value = prefs.getBoolean("require_confirmation", true)
     }
 
-    private fun addPermissionCard(
-        page: LinearLayout,
-        title: String,
-        description: String,
-        buttonText: String,
-        listener: View.OnClickListener
-    ): TextView {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(14))
-            setBackgroundColor(Color.WHITE)
-        }
-
-        card.addView(text(title, 18f, getColor(R.color.mobby_navy)).apply {
-            setTypeface(null, 1)
-        })
-
-        card.addView(text(description, 14f, getColor(R.color.mobby_muted)).apply {
-            setPadding(0, dp(6), 0, dp(6))
-        })
-
-        val status = text("Not enabled", 13f, getColor(R.color.mobby_muted))
-        card.addView(status)
-
-        card.addView(Button(this).apply {
-            isAllCaps = false
-            text = buttonText
-            setOnClickListener(listener)
-        })
-
-        page.addView(card, fullWidth())
-        addSpacing(page, 12)
-        return status
+    private fun updatePermissionStates() {
+        micEnabledState.value = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        accessibilityEnabledState.value = isAccessibilityAccessEnabled()
+        notificationEnabledState.value = isNotificationAccessEnabled()
+        Log.i(TAG, "updatePermissionStates: mic=${micEnabledState.value}, accessibility=${accessibilityEnabledState.value}, notification=${notificationEnabledState.value}")
     }
 
-    private fun addInstructionCard(
-        page: LinearLayout,
-        title: String,
-        description: String,
-        buttonText: String,
-        listener: View.OnClickListener
-    ) {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(14))
-            setBackgroundColor(Color.WHITE)
-        }
-
-        card.addView(text(title, 18f, getColor(R.color.mobby_navy)).apply {
-            setTypeface(null, 1)
-        })
-
-        card.addView(text(description, 14f, getColor(R.color.mobby_muted)).apply {
-            setPadding(0, dp(6), 0, dp(6))
-        })
-
-        card.addView(Button(this).apply {
-            isAllCaps = false
-            text = buttonText
-            setOnClickListener(listener)
-        })
-
-        page.addView(card, fullWidth())
-        addSpacing(page, 12)
+    private fun refreshTasks() {
+        scheduledTasksState.value = TaskScheduler.getTasks(this)
     }
-
-    private fun addScheduledAutomationsCard(page: LinearLayout) {
-        val context = this
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(14))
-            setBackgroundColor(Color.WHITE)
-        }
-
-        card.addView(text("⏰ Scheduled Automations", 18f, getColor(R.color.mobby_navy)).apply {
-            setTypeface(null, Typeface.BOLD)
-        })
-
-        card.addView(text("Set automated tasks to execute in the background.", 14f, getColor(R.color.mobby_muted)).apply {
-            setPadding(0, dp(4), 0, dp(8))
-        })
-
-        val listContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        card.addView(listContainer)
-
-        val promptInput = EditText(this).apply {
-            hint = "Command (e.g., Check my emails)"
-            textSize = 14f
-        }
-        card.addView(promptInput)
-
-        val paramInput = EditText(this).apply {
-            hint = "Interval in minutes (min 15)"
-            textSize = 14f
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-        }
-        card.addView(paramInput)
-
-        var triggerMode = "INTERVAL"
-
-        val modeButton = Button(this).apply {
-            isAllCaps = false
-            text = "Mode: Repeat Every X Minutes"
-            textSize = 12f
-            setOnClickListener {
-                if (triggerMode == "INTERVAL") {
-                    triggerMode = "DAILY"
-                    text = "Mode: Run Daily at Time"
-                    paramInput.hint = "Time of day (e.g., 08:30)"
-                    paramInput.text.clear()
-                    paramInput.inputType = android.text.InputType.TYPE_CLASS_TEXT
-                } else {
-                    triggerMode = "INTERVAL"
-                    text = "Mode: Repeat Every X Minutes"
-                    paramInput.hint = "Interval in minutes (min 15)"
-                    paramInput.text.clear()
-                    paramInput.inputType = android.text.InputType.TYPE_CLASS_NUMBER
-                }
-            }
-        }
-        card.addView(modeButton)
-
-        fun refreshTaskList() {
-            listContainer.removeAllViews()
-            val tasks = TaskScheduler.getTasks(context)
-            if (tasks.isEmpty()) {
-                listContainer.addView(text("No active scheduled tasks.", 13f, getColor(R.color.mobby_muted)).apply {
-                    setPadding(0, dp(4), 0, dp(8))
-                })
-            } else {
-                for (task in tasks) {
-                    val taskRow = LinearLayout(context).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        setPadding(0, dp(4), 0, dp(4))
-                    }
-                    val triggerDesc = if (task.type == "INTERVAL") "every ${task.intervalMinutes}m" else "daily at ${String.format("%02d:%02d", task.hour, task.minute)}"
-
-                    val infoText = TextView(context).apply {
-                        text = "• \"${task.prompt}\" ($triggerDesc)"
-                        textSize = 13f
-                        setTextColor(getColor(R.color.mobby_navy))
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    }
-                    taskRow.addView(infoText)
-
-                    val deleteBtn = Button(context).apply {
-                        isAllCaps = false
-                        text = "Delete"
-                        textSize = 11f
-                        setPadding(dp(6), 0, dp(6), 0)
-                        setOnClickListener {
-                            TaskScheduler.cancelTask(context, task.id)
-                            refreshTaskList()
-                            Toast.makeText(context, "Task cancelled", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    taskRow.addView(deleteBtn)
-                    listContainer.addView(taskRow)
-                }
-            }
-        }
-
-        refreshTaskList()
-
-        val addBtn = Button(this).apply {
-            isAllCaps = false
-            text = "Schedule Automation"
-            setOnClickListener {
-                val prompt = promptInput.text.toString().trim()
-                val param = paramInput.text.toString().trim()
-
-                if (prompt.isEmpty() || param.isEmpty()) {
-                    Toast.makeText(context, "Please enter both prompt and trigger parameters", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                val taskId = "mobby_task_${System.currentTimeMillis()}"
-                val task = if (triggerMode == "INTERVAL") {
-                    val minutes = param.toIntOrNull() ?: 60
-                    ScheduledTask(id = taskId, prompt = prompt, type = "INTERVAL", intervalMinutes = minutes)
-                } else {
-                    val parts = param.split(":")
-                    if (parts.size != 2) {
-                        Toast.makeText(context, "Please use HH:mm format (e.g., 08:30)", Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-                    val hour = parts[0].toIntOrNull() ?: 8
-                    val minute = parts[1].toIntOrNull() ?: 0
-                    ScheduledTask(id = taskId, prompt = prompt, type = "DAILY", hour = hour, minute = minute)
-                }
-
-                TaskScheduler.addTask(context, task)
-                promptInput.text.clear()
-                paramInput.text.clear()
-                refreshTaskList()
-                Toast.makeText(context, "Task scheduled successfully", Toast.LENGTH_SHORT).show()
-            }
-        }
-        card.addView(addBtn)
-
-        page.addView(card, fullWidth())
-        addSpacing(page, 12)
-    }
-
-    private fun addGeminiKeyCard(page: LinearLayout) {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(14))
-            setBackgroundColor(Color.WHITE)
-        }
-
-        card.addView(text("Gemini Brain (Optional)", 18f, getColor(R.color.mobby_navy)).apply {
-            setTypeface(null, 1)
-        })
-
-        card.addView(text("Enter your Gemini API Key to enable advanced AI actions like writing emails and complex tasks.", 14f, getColor(R.color.mobby_muted)).apply {
-            setPadding(0, dp(6), 0, dp(6))
-        })
-
-        val sharedPreferences = getSharedPreferences("mobby_prefs", MODE_PRIVATE)
-        val savedKey = sharedPreferences.getString("gemini_api_key", "") ?: ""
-
-        val input = EditText(this).apply {
-            hint = "AIzaSy..."
-            setText(savedKey)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        card.addView(input)
-
-        card.addView(Button(this).apply {
-            isAllCaps = false
-            text = "Save API Key"
-            setOnClickListener {
-                val key = input.text.toString().trim()
-                sharedPreferences.edit().putString("gemini_api_key", key).apply()
-                Toast.makeText(this@MainActivity, if (key.isEmpty()) "API Key cleared" else "API Key saved", Toast.LENGTH_SHORT).show()
-            }
-        })
-
-        page.addView(card, fullWidth())
-        addSpacing(page, 12)
-    }
-
-    private fun addConfirmationSettingsCard(page: LinearLayout) {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(14))
-            setBackgroundColor(Color.WHITE)
-        }
-
-        card.addView(text("Confirmation Settings", 18f, getColor(R.color.mobby_navy)).apply {
-            setTypeface(null, 1)
-        })
-
-        card.addView(text("By default, Mobby asks for confirmation before performing any action. Turn this off to execute non-critical actions automatically.", 14f, getColor(R.color.mobby_muted)).apply {
-            setPadding(0, dp(6), 0, dp(6))
-        })
-
-        val sharedPreferences = getSharedPreferences("mobby_prefs", MODE_PRIVATE)
-        val requireConfirmation = sharedPreferences.getBoolean("require_confirmation", true)
-
-        val toggleButton = Button(this).apply {
-            isAllCaps = false
-            text = if (requireConfirmation) "Confirmation: Required" else "Confirmation: Disabled (Auto-execute)"
-            setOnClickListener {
-                val currentVal = sharedPreferences.getBoolean("require_confirmation", true)
-                val newVal = !currentVal
-                sharedPreferences.edit().putBoolean("require_confirmation", newVal).apply()
-                text = if (newVal) "Confirmation: Required" else "Confirmation: Disabled (Auto-execute)"
-                Toast.makeText(
-                    this@MainActivity,
-                    if (newVal) "Confirmation required for all actions" else "Confirmation disabled for non-critical actions",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-        card.addView(toggleButton)
-
-        page.addView(card, fullWidth())
-        addSpacing(page, 12)
-    }
-
 
     private fun openDeviceControls() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (!micEnabledState.value) {
             requestMicrophone()
             return
         }
-        if (!isAccessibilityAccessEnabled()) {
+        if (!accessibilityEnabledState.value) {
             toast("Enable Mobby in Android Accessibility Settings first.")
             openAccessibilitySettings()
             return
@@ -441,7 +166,9 @@ class MainActivity : Activity() {
     private fun requestMicrophone() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.i(TAG, "requestMicrophone: requesting RECORD_AUDIO permission")
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MICROPHONE)
+            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            toast("Microphone permission is already enabled.")
         }
     }
 
@@ -451,33 +178,6 @@ class MainActivity : Activity() {
 
     private fun openAccessibilitySettings() {
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        updatePermissionStates()
-        if (requestCode == REQUEST_MICROPHONE && grantResults.isNotEmpty()
-            && grantResults[0] == PackageManager.PERMISSION_GRANTED
-        ) {
-            Log.i(TAG, "onRequestPermissionsResult: microphone granted")
-            toast("Microphone enabled. Tap Start Mobby Voice Assistant when you are ready.")
-        }
-    }
-
-    private fun updatePermissionStates() {
-        if (!::microphoneStatus.isInitialized) return
-        val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val notification = isNotificationAccessEnabled()
-        val accessibility = isAccessibilityAccessEnabled()
-        setStatus(microphoneStatus, mic)
-        setStatus(notificationStatus, notification)
-        setStatus(accessibilityStatus, accessibility)
-        Log.i(TAG, "updatePermissionStates: mic=$mic, accessibility=$accessibility, notification=$notification")
-    }
-
-    private fun setStatus(view: TextView, enabled: Boolean) {
-        view.text = if (enabled) "Enabled" else "Not enabled"
-        view.setTextColor(getColor(if (enabled) R.color.mobby_success else R.color.mobby_muted))
     }
 
     private fun isNotificationAccessEnabled(): Boolean {
@@ -495,30 +195,463 @@ class MainActivity : Activity() {
         return setting.split(":").any { target == ComponentName.unflattenFromString(it) }
     }
 
-    private fun text(value: String, size: Float, color: Int): TextView =
-        TextView(this).apply {
-            text = value
-            textSize = size
-            setTextColor(color)
-            setLineSpacing(0f, 1.1f)
-        }
-
-    private fun fullWidth(): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-
-    private fun addSpacing(parent: LinearLayout, height: Int) {
-        parent.addView(View(this), LinearLayout.LayoutParams(1, dp(height)))
-    }
-
-    private fun dp(value: Int): Int =
-        Math.round(value * resources.displayMetrics.density)
-
     private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     companion object {
         private const val TAG = "MobbyMain"
-        private const val REQUEST_MICROPHONE = 101
+    }
+}
+
+// ── Jetpack Compose Theme & UI Components ───────────────────────────
+
+@Composable
+fun MobbyTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = MaterialTheme.colorScheme.copy(
+            primary = MobbyBlue,
+            background = MobbyBg,
+            surface = Color.White
+        ),
+        content = content
+    )
+}
+
+@Composable
+fun MobbySetupScreen(
+    micEnabled: Boolean,
+    accessibilityEnabled: Boolean,
+    notificationEnabled: Boolean,
+    geminiApiKey: String,
+    requireConfirmation: Boolean,
+    scheduledTasks: List<ScheduledTask>,
+    onAllowMic: () -> Unit,
+    onOpenAccessibility: () -> Unit,
+    onOpenNotification: () -> Unit,
+    onSaveGeminiKey: (String) -> Unit,
+    onToggleConfirmation: () -> Unit,
+    onAddTask: (ScheduledTask) -> Unit,
+    onDeleteTask: (String) -> Unit,
+    onStartAssistant: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MobbyBg
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+        ) {
+            // Header Title
+            Text(
+                text = "Mobby",
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Bold,
+                color = MobbyNavy
+            )
+            Text(
+                text = "Your voice-controlled guide for any app on your phone.",
+                fontSize = 16.sp,
+                color = MobbyMuted,
+                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+            )
+
+            // Privacy Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "You decide what Mobby can access. It reads screen text only when you ask, keeps it on this device, and asks for confirmation before it taps, types, or sends anything.",
+                    fontSize = 14.sp,
+                    color = MobbyNavy,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Permission Card 1: Microphone
+            PermissionSetupCard(
+                title = "1. Microphone",
+                description = "Lets Mobby hear a command when you choose Speak. Mobby does not use an always-on microphone.",
+                buttonText = "Allow microphone",
+                enabled = micEnabled,
+                onButtonClick = onAllowMic
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Permission Card 2: Accessibility
+            PermissionSetupCard(
+                title = "2. Device controls",
+                description = "Android's Accessibility service lets Mobby read visible text and controls, then perform the action you explicitly confirm. Android requires you to switch this on in Settings.",
+                buttonText = "Open Accessibility",
+                enabled = accessibilityEnabled,
+                onButtonClick = onOpenAccessibility
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Permission Card 3: Notifications
+            PermissionSetupCard(
+                title = "3. Message access (optional)",
+                description = "Lets Mobby check active notifications and send a reply through a messaging app's own Direct Reply action. This works across apps that support Android Direct Reply.",
+                buttonText = "Open message access",
+                enabled = notificationEnabled,
+                onButtonClick = onOpenNotification
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Gemini Key Card
+            GeminiKeySetupCard(
+                savedKey = geminiApiKey,
+                onSaveKey = onSaveGeminiKey
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Confirmation Settings Card
+            ConfirmationSettingsSetupCard(
+                requireConfirmation = requireConfirmation,
+                onToggle = onToggleConfirmation
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Quick Shortcut Card
+            InstructionSetupCard(
+                title = "⚡ Quick Shortcut (Volume Keys)",
+                description = "You can quickly summon or stop Mobby from any screen by pressing and holding both Volume keys for 3 seconds.\n\nTo enable this, go to Settings ➔ Volume key shortcut ➔ select Mobby.",
+                buttonText = "Configure Shortcut",
+                onButtonClick = onOpenAccessibility
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Scheduled Automations Card
+            ScheduledAutomationsSetupCard(
+                tasks = scheduledTasks,
+                onAddTask = onAddTask,
+                onDeleteTask = onDeleteTask
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Start Assistant Primary Button
+            Button(
+                onClick = onStartAssistant,
+                colors = ButtonDefaults.buttonColors(containerColor = MobbyBlue),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Text(
+                    text = "Start Mobby Voice Assistant",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            // Footer Examples
+            Text(
+                text = "Examples: “What’s on screen?”, “Guide me”, “Tap Search”, “Type hello”, “Scroll down”, “Reply that I’m running late”, or “Reply to Maya that I’ll call later.”",
+                fontSize = 13.sp,
+                color = MobbyMuted,
+                modifier = Modifier.padding(top = 12.dp, bottom = 24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun PermissionSetupCard(
+    title: String,
+    description: String,
+    buttonText: String,
+    enabled: Boolean,
+    onButtonClick: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MobbyNavy)
+            Text(text = description, fontSize = 14.sp, color = MobbyMuted, modifier = Modifier.padding(vertical = 6.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                Text(
+                    text = if (enabled) "Enabled" else "Not enabled",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (enabled) MobbySuccess else MobbyError
+                )
+            }
+            Button(
+                onClick = onButtonClick,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = if (enabled) MobbyMuted else MobbyBlue)
+            ) {
+                Text(text = buttonText, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun GeminiKeySetupCard(
+    savedKey: String,
+    onSaveKey: (String) -> Unit
+) {
+    var keyInput by remember(savedKey) { mutableStateOf(savedKey) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Gemini Brain (Optional)", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MobbyNavy)
+            Text(
+                text = "Enter your Gemini API Key to enable advanced AI actions like writing emails and complex tasks.",
+                fontSize = 14.sp,
+                color = MobbyMuted,
+                modifier = Modifier.padding(vertical = 6.dp)
+            )
+            OutlinedTextField(
+                value = keyInput,
+                onValueChange = { keyInput = it },
+                label = { Text("API Key (AIzaSy...)") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            )
+            Button(
+                onClick = { onSaveKey(keyInput.trim()) },
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MobbyBlue)
+            ) {
+                Text(text = "Save API Key", color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun ConfirmationSettingsSetupCard(
+    requireConfirmation: Boolean,
+    onToggle: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Confirmation Settings", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MobbyNavy)
+            Text(
+                text = "By default, Mobby asks for confirmation before performing any action. Turn this off to execute non-critical actions automatically.",
+                fontSize = 14.sp,
+                color = MobbyMuted,
+                modifier = Modifier.padding(vertical = 6.dp)
+            )
+            OutlinedButton(
+                onClick = onToggle,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (requireConfirmation) "Confirmation: Required" else "Confirmation: Disabled (Auto-execute)",
+                    color = if (requireConfirmation) MobbyNavy else MobbySuccess
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InstructionSetupCard(
+    title: String,
+    description: String,
+    buttonText: String,
+    onButtonClick: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MobbyNavy)
+            Text(text = description, fontSize = 14.sp, color = MobbyMuted, modifier = Modifier.padding(vertical = 6.dp))
+            Button(
+                onClick = onButtonClick,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MobbyBlue)
+            ) {
+                Text(text = buttonText, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun ScheduledAutomationsSetupCard(
+    tasks: List<ScheduledTask>,
+    onAddTask: (ScheduledTask) -> Unit,
+    onDeleteTask: (String) -> Unit
+) {
+    var promptInput by remember { mutableStateOf("") }
+    var paramInput by remember { mutableStateOf("") }
+    var triggerMode by remember { mutableStateOf("INTERVAL") } // "INTERVAL" | "DAILY"
+    val context = LocalContext.current
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "⏰ Scheduled Automations", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MobbyNavy)
+            Text(
+                text = "Set automated tasks to execute in the background.",
+                fontSize = 14.sp,
+                color = MobbyMuted,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+
+            // Task List
+            if (tasks.isEmpty()) {
+                Text(text = "No active scheduled tasks.", fontSize = 13.sp, color = MobbyMuted, modifier = Modifier.padding(vertical = 8.dp))
+            } else {
+                Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                    for (task in tasks) {
+                        val triggerDesc = if (task.type == "INTERVAL") "every ${task.intervalMinutes}m" else "daily at ${String.format("%02d:%02d", task.hour, task.minute)}"
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "• \"${task.prompt}\" ($triggerDesc)",
+                                fontSize = 13.sp,
+                                color = MobbyNavy,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { onDeleteTask(task.id) }) {
+                                Text(text = "Delete", fontSize = 12.sp, color = MobbyError)
+                            }
+                        }
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = promptInput,
+                onValueChange = { promptInput = it },
+                label = { Text("Command (e.g. Check my emails)") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+            )
+
+            OutlinedTextField(
+                value = paramInput,
+                onValueChange = { paramInput = it },
+                label = { Text(if (triggerMode == "INTERVAL") "Interval in minutes (min 15)" else "Time of day (HH:mm, e.g. 08:30)") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            )
+
+            TextButton(
+                onClick = {
+                    triggerMode = if (triggerMode == "INTERVAL") "DAILY" else "INTERVAL"
+                    paramInput = ""
+                },
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                Text(
+                    text = if (triggerMode == "INTERVAL") "Mode: Repeat Every X Minutes (Tap to change)" else "Mode: Run Daily at Time (Tap to change)",
+                    fontSize = 12.sp,
+                    color = MobbyBlue
+                )
+            }
+
+            Button(
+                onClick = {
+                    val prompt = promptInput.trim()
+                    val param = paramInput.trim()
+                    if (prompt.isEmpty() || param.isEmpty()) {
+                        Toast.makeText(context, "Please enter both prompt and trigger parameters", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    val taskId = "mobby_task_${System.currentTimeMillis()}"
+                    val task = if (triggerMode == "INTERVAL") {
+                        val minutes = param.toIntOrNull() ?: 60
+                        ScheduledTask(id = taskId, prompt = prompt, type = "INTERVAL", intervalMinutes = minutes)
+                    } else {
+                        val parts = param.split(":")
+                        if (parts.size != 2) {
+                            Toast.makeText(context, "Please use HH:mm format (e.g., 08:30)", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        val hour = parts[0].toIntOrNull() ?: 8
+                        val minute = parts[1].toIntOrNull() ?: 0
+                        ScheduledTask(id = taskId, prompt = prompt, type = "DAILY", hour = hour, minute = minute)
+                    }
+                    onAddTask(task)
+                    promptInput = ""
+                    paramInput = ""
+                },
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MobbyBlue),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Schedule Automation", color = Color.White)
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun MobbySetupScreenPreview() {
+    MobbyTheme {
+        MobbySetupScreen(
+            micEnabled = true,
+            accessibilityEnabled = false,
+            notificationEnabled = true,
+            geminiApiKey = "AIzaSy...",
+            requireConfirmation = true,
+            scheduledTasks = listOf(
+                ScheduledTask("1", "Check WhatsApp messages", "INTERVAL", intervalMinutes = 30)
+            ),
+            onAllowMic = {},
+            onOpenAccessibility = {},
+            onOpenNotification = {},
+            onSaveGeminiKey = {},
+            onToggleConfirmation = {},
+            onAddTask = {},
+            onDeleteTask = {},
+            onStartAssistant = {}
+        )
     }
 }

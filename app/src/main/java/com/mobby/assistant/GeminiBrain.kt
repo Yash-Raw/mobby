@@ -1,6 +1,9 @@
 package com.mobby.assistant
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,10 +27,29 @@ class GeminiBrain(private val context: Context) {
 
     fun isEnabled(): Boolean = apiKey.isNotEmpty()
 
+    private fun isNetworkAvailable(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = cm.activeNetwork ?: return false
+            val capabilities = cm.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } else {
+            @Suppress("DEPRECATION")
+            val activeNetworkInfo = cm.activeNetworkInfo
+            @Suppress("DEPRECATION")
+            activeNetworkInfo != null && activeNetworkInfo.isConnected
+        }
+    }
+
     suspend fun getNextAction(
         session: GeminiSession,
         screenContents: String
     ): GeminiAction = withContext(Dispatchers.IO) {
+        if (!isNetworkAvailable()) {
+            return@withContext GeminiAction.say("No internet connection. Please check your network and try again.")
+        }
+
         val key = apiKey
         if (key.isEmpty()) {
             return@withContext GeminiAction.say("Please configure your Gemini API key in Mobby app setup first.")

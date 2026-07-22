@@ -48,6 +48,8 @@ class GeminiBrain(private val context: Context) {
         try {
             val url = URL("https://generativelanguage.googleapis.com/v1/models/$MODEL_NAME:generateContent?key=$key")
             val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 30_000
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
             conn.doOutput = true

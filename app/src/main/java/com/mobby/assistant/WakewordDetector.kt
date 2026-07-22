@@ -1,20 +1,24 @@
 package com.mobby.assistant
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import java.util.Locale
 
 /**
- * Listens continuously in the background for the voice trigger word ("Mobby" or "Moby").
- * When heard, triggers the [onWakewordDetected] callback.
+ * Listens continuously in the background for the voice trigger word ("Mobby" or "Moby")
+ * only when enabled by the user in settings.
  *
- * It uses the phone's native [SpeechRecognizer] to avoid external library size overhead.
- * Handles automatic restart loops when the speech engine times out or reaches boundaries.
+ * Shows a persistent status notification when active for user transparency and
+ * applies a backoff delay to prevent continuous battery drain during engine retries.
  */
 class WakewordDetector(
     private val context: Context,
@@ -23,11 +27,23 @@ class WakewordDetector(
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
 
-    /** Starts continuous background listening for the wakeword. */
+    private val sharedPrefs = context.getSharedPreferences("mobby_prefs", Context.MODE_PRIVATE)
+
+    fun isEnabledInSettings(): Boolean {
+        return sharedPrefs.getBoolean("wakeword_enabled", false)
+    }
+
+    /** Starts continuous background listening for the wakeword if enabled in settings. */
     fun startListening() {
+        if (!isEnabledInSettings()) {
+            Log.d(TAG, "startListening: wakeword detection is disabled in settings")
+            stopListening()
+            return
+        }
         if (isListening) return
         isListening = true
         Log.d(TAG, "startListening: starting background wakeword detector")
+        showWakewordNotification()
 
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         mainHandler.post {
@@ -43,12 +59,16 @@ class WakewordDetector(
 
                             override fun onError(error: Int) {
                                 Log.d(TAG, "onError: code=$error (wakeword listener)")
-                                // Restart listening on typical speech timeouts / boundaries
+                                // Restart listening with backoff delay on speech timeouts / boundaries
                                 if (isListening) {
                                     speechRecognizer?.destroy()
                                     speechRecognizer = null
                                     isListening = false
-                                    startListening()
+                                    mainHandler.postDelayed({
+                                        if (isEnabledInSettings()) {
+                                            startListening()
+                                        }
+                                    }, RESTART_BACKOFF_MS)
                                 }
                             }
 
@@ -65,12 +85,16 @@ class WakewordDetector(
                                         }
                                     }
                                 }
-                                // Restart listening loop
+                                // Restart listening loop with backoff delay
                                 if (isListening) {
                                     speechRecognizer?.destroy()
                                     speechRecognizer = null
                                     isListening = false
-                                    startListening()
+                                    mainHandler.postDelayed({
+                                        if (isEnabledInSettings()) {
+                                            startListening()
+                                        }
+                                    }, RESTART_BACKOFF_MS)
                                 }
                             }
 
@@ -102,12 +126,14 @@ class WakewordDetector(
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting wakeword SpeechRecognizer", e)
                 isListening = false
+                removeWakewordNotification()
             }
         }
     }
 
     /** Stops background listening and releases microphone/resources. */
     fun stopListening() {
+        removeWakewordNotification()
         if (!isListening) return
         isListening = false
         Log.d(TAG, "stopListening: stopping background wakeword detector")
@@ -123,7 +149,49 @@ class WakewordDetector(
         }
     }
 
+    private fun showWakewordNotification() {
+        val channelId = "mobby_wakeword"
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "Wakeword Detector",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Shows when Mobby is actively listening for the 'Hey Mobby' voice trigger"
+            }
+            nm.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setContentTitle("Mobby Wakeword Active")
+            .setContentText("Listening for “Mobby” trigger word...")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        try {
+            nm.notify(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post wakeword notification", e)
+        }
+    }
+
+    private fun removeWakewordNotification() {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            nm.cancel(NOTIFICATION_ID)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to cancel wakeword notification", e)
+        }
+    }
+
     companion object {
         private const val TAG = "MobbyWakeword"
+        private const val NOTIFICATION_ID = 2001
+        private const val RESTART_BACKOFF_MS = 1500L
     }
 }
+

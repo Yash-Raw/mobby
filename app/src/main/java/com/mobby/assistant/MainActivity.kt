@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
     private var notificationEnabledState = mutableStateOf(false)
     private var geminiApiKeyState = mutableStateOf("")
     private var requireConfirmationState = mutableStateOf(true)
+    private var wakewordEnabledState = mutableStateOf(false)
     private var scheduledTasksState = mutableStateOf<List<ScheduledTask>>(emptyList())
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
                     notificationEnabled = notificationEnabledState.value,
                     geminiApiKey = geminiApiKeyState.value,
                     requireConfirmation = requireConfirmationState.value,
+                    wakewordEnabled = wakewordEnabledState.value,
                     scheduledTasks = scheduledTasksState.value,
                     onAllowMic = { requestMicrophone() },
                     onOpenAccessibility = { openAccessibilitySettings() },
@@ -105,6 +107,13 @@ class MainActivity : ComponentActivity() {
                             .edit().putBoolean("require_confirmation", newVal).apply()
                         requireConfirmationState.value = newVal
                         toast(if (newVal) "Confirmation required for all actions" else "Confirmation disabled for non-critical actions")
+                    },
+                    onToggleWakeword = {
+                        val newVal = !wakewordEnabledState.value
+                        getSharedPreferences("mobby_prefs", MODE_PRIVATE)
+                            .edit().putBoolean("wakeword_enabled", newVal).apply()
+                        wakewordEnabledState.value = newVal
+                        toast(if (newVal) "Wakeword listener enabled" else "Wakeword listener disabled")
                     },
                     onAddTask = { task ->
                         TaskScheduler.addTask(this, task)
@@ -132,6 +141,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("mobby_prefs", MODE_PRIVATE)
         geminiApiKeyState.value = prefs.getString("gemini_api_key", "") ?: ""
         requireConfirmationState.value = prefs.getBoolean("require_confirmation", true)
+        wakewordEnabledState.value = prefs.getBoolean("wakeword_enabled", false)
     }
 
     private fun updatePermissionStates() {
@@ -225,12 +235,14 @@ fun MobbySetupScreen(
     notificationEnabled: Boolean,
     geminiApiKey: String,
     requireConfirmation: Boolean,
+    wakewordEnabled: Boolean,
     scheduledTasks: List<ScheduledTask>,
     onAllowMic: () -> Unit,
     onOpenAccessibility: () -> Unit,
     onOpenNotification: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
     onToggleConfirmation: () -> Unit,
+    onToggleWakeword: () -> Unit,
     onAddTask: (ScheduledTask) -> Unit,
     onDeleteTask: (String) -> Unit,
     onStartAssistant: () -> Unit
@@ -278,7 +290,7 @@ fun MobbySetupScreen(
             // Permission Card 1: Microphone
             PermissionSetupCard(
                 title = "1. Microphone",
-                description = "Lets Mobby hear a command when you choose Speak. Mobby does not use an always-on microphone.",
+                description = "Lets Mobby hear a command when you choose Speak. Mobby does not use an always-on microphone unless Wakeword is explicitly enabled below.",
                 buttonText = "Allow microphone",
                 enabled = micEnabled,
                 onButtonClick = onAllowMic
@@ -320,6 +332,14 @@ fun MobbySetupScreen(
             ConfirmationSettingsSetupCard(
                 requireConfirmation = requireConfirmation,
                 onToggle = onToggleConfirmation
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Wakeword Settings Card
+            WakewordSettingsSetupCard(
+                wakewordEnabled = wakewordEnabled,
+                onToggle = onToggleWakeword
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -476,6 +496,38 @@ fun ConfirmationSettingsSetupCard(
                 Text(
                     text = if (requireConfirmation) "Confirmation: Required" else "Confirmation: Disabled (Auto-execute)",
                     color = if (requireConfirmation) MobbyNavy else MobbySuccess
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun WakewordSettingsSetupCard(
+    wakewordEnabled: Boolean,
+    onToggle: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "🎙️ Wakeword Detection (“Hey Mobby”)", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MobbyNavy)
+            Text(
+                text = "When enabled, Mobby listens in the background for the “Mobby” trigger word and shows an active notification. Keep disabled to save battery.",
+                fontSize = 14.sp,
+                color = MobbyMuted,
+                modifier = Modifier.padding(vertical = 6.dp)
+            )
+            OutlinedButton(
+                onClick = onToggle,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (wakewordEnabled) "Wakeword: Enabled (Listening in background)" else "Wakeword: Disabled (Saves battery)",
+                    color = if (wakewordEnabled) MobbySuccess else MobbyNavy
                 )
             }
         }
@@ -641,6 +693,7 @@ fun MobbySetupScreenPreview() {
             notificationEnabled = true,
             geminiApiKey = "AIzaSy...",
             requireConfirmation = true,
+            wakewordEnabled = false,
             scheduledTasks = listOf(
                 ScheduledTask("1", "Check WhatsApp messages", "INTERVAL", intervalMinutes = 30)
             ),
@@ -649,6 +702,7 @@ fun MobbySetupScreenPreview() {
             onOpenNotification = {},
             onSaveGeminiKey = {},
             onToggleConfirmation = {},
+            onToggleWakeword = {},
             onAddTask = {},
             onDeleteTask = {},
             onStartAssistant = {}
